@@ -269,11 +269,11 @@ function verificarEncabezadosTransferencias(hoja) {
       'Fecha', 'Folio', 'Cliente', 'Servicio (s)', 'Banco', 'Monto',
       '✅ Conciliado', '💳 Concepto Banco', '🔍 Observaciones'
     ]]);
-    
-    // Formatear encabezados
+      
+      // Formatear encabezados
     const headerRange = hoja.getRange(1, 1, 1, 9);
-    headerRange.setFontWeight('bold');
-    headerRange.setBackground('#f0f0f0');
+      headerRange.setFontWeight('bold');
+      headerRange.setBackground('#f0f0f0');
     hoja.getRange(1, 7, 1, 3).setBackground('#fff2cc');
     
     console.log('Encabezados agregados');
@@ -317,7 +317,7 @@ function obtenerOCrearHojaTransferencias(ss) {
     hoja.getRange(1, 7, 1, 3).setBackground('#fff2cc');
     
     console.log(`Hoja "${NOMBRE_HOJA_TRANSFERENCIAS}" creada`);
-  } else {
+    } else {
     // Verificar que tenga encabezados
     verificarEncabezadosTransferencias(hoja);
   }
@@ -412,10 +412,10 @@ function obtenerOCrearHojaCierres(ss) {
       '🔍 Observaciones'  // G - Manual
     ]);
         
-    // Formatear encabezados
+        // Formatear encabezados
     const headerRange = hoja.getRange(1, 1, 1, 7);
-    headerRange.setFontWeight('bold');
-    headerRange.setBackground('#f0f0f0');
+        headerRange.setFontWeight('bold');
+        headerRange.setBackground('#f0f0f0');
         
     // Agregar fila de ejemplo con fórmulas
     // Nota: # Lote está en columna H de Tarjetas (después de Afiliación en G)
@@ -592,7 +592,7 @@ function sincronizarConciliacion() {
             // CAMBIÓ de Tarjeta a Transferencia - mover (solo si tiene rowIndex válido)
             movimientosEntreHojas.push({
               tipo: 'TARJETA_A_TRANSFERENCIA',
-              folio: folio,
+            folio: folio,
               rowIndexOrigen: existeEnTarjetas.rowIndex,
             fecha: fechaVenta,
             cliente: cliente,
@@ -613,8 +613,9 @@ function sincronizarConciliacion() {
                 cambios: cambios
               });
             }
-          } else if (!existeEnTransferencias) {
+          } else if (!existeEnTransferencias || !existeEnTransferencias.rowIndex || existeEnTransferencias.rowIndex <= 0) {
             // Nuevo registro (no existe o tiene rowIndex inválido)
+            // Nota: Si ya está en el mapa con rowIndex <= 0, es porque fue agregado en esta misma ejecución
             nuevosTransferencias.push({ fecha: fechaVenta, folio, cliente, servicio, banco, monto });
             foliosTransferencias.set(folio, { rowIndex: -1 });
           }
@@ -643,8 +644,9 @@ function sincronizarConciliacion() {
                 cambios: cambios
               });
             }
-          } else if (!existeEnTarjetas) {
+          } else if (!existeEnTarjetas || !existeEnTarjetas.rowIndex || existeEnTarjetas.rowIndex <= 0) {
             // Nuevo registro (no existe o tiene rowIndex inválido)
+            // Nota: Si ya está en el mapa con rowIndex <= 0, es porque fue agregado en esta misma ejecución
             nuevosTarjetas.push({ fecha: fechaVenta, folio, cliente, servicio, monto });
             foliosTarjetas.set(folio, { rowIndex: -1 });
           }
@@ -805,7 +807,9 @@ function sincronizarRango(fechaInicioStr, fechaFinStr) {
                 folio, fecha: fechaVenta, cliente, servicio, banco, monto, cambios
               });
             }
-          } else if (!existeEnTransferencias) {
+          } else if (!existeEnTransferencias || !existeEnTransferencias.rowIndex || existeEnTransferencias.rowIndex <= 0) {
+            // Nuevo registro (no existe o tiene rowIndex inválido)
+            // Nota: Si ya está en el mapa con rowIndex <= 0, es porque fue agregado en esta misma ejecución
             nuevosTransferencias.push({ fecha: fechaVenta, folio, cliente, servicio, banco, monto });
             foliosTransferencias.set(folio, { rowIndex: -1 });
           }
@@ -825,7 +829,9 @@ function sincronizarRango(fechaInicioStr, fechaFinStr) {
                 folio, fecha: fechaVenta, cliente, servicio, monto, cambios
               });
             }
-          } else if (!existeEnTarjetas) {
+          } else if (!existeEnTarjetas || !existeEnTarjetas.rowIndex || existeEnTarjetas.rowIndex <= 0) {
+            // Nuevo registro (no existe o tiene rowIndex inválido)
+            // Nota: Si ya está en el mapa con rowIndex <= 0, es porque fue agregado en esta misma ejecución
             nuevosTarjetas.push({ fecha: fechaVenta, folio, cliente, servicio, monto });
             foliosTarjetas.set(folio, { rowIndex: -1 });
           }
