@@ -13,13 +13,13 @@
  * CONFIGURACIÓN:
  * - ID_ARCHIVO_ORIGEN: ID del archivo Google Sheets de Operaciones Lavasmart
  * - ID_ARCHIVO_DESTINO: ID del archivo donde se guardan los registros
- * - DIAS_LOOKBACK: Días hacia atrás para buscar registros (default: 5)
+ * - DIAS_LOOKBACK: Días hacia atrás para buscar registros (default: 10)
  */
 
 // ==================== CONFIGURACIÓN ====================
 const ID_ARCHIVO_ORIGEN = '10_jpvm53Jn3zo0px5_wCs8Nf2YwmRpPR-CPfHC21KQs';
 const ID_ARCHIVO_DESTINO = '13JwPsTMdhkeRwcYsaf99t7QMvRApU-31YIrTVL7UQGo';
-const DIAS_LOOKBACK = 5;
+const DIAS_LOOKBACK = 10; // Aumentado de 5 a 10 para cubrir fines de semana largos
 
 // Nombres de hojas
 const NOMBRE_HOJA_TRANSFERENCIAS = 'Conciliacion_Transferencias';
@@ -329,23 +329,23 @@ function obtenerOCrearHojaTransferencias(ss) {
  * Verifica y agrega encabezados si faltan en una hoja de tarjetas
  */
 function verificarEncabezadosTarjetas(hoja) {
-  const primeraFila = hoja.getRange(1, 1, 1, 8).getValues()[0];
+  const primeraFila = hoja.getRange(1, 1, 1, 9).getValues()[0];
   const primerValor = String(primeraFila[0] || '').toLowerCase();
   
   // Si la primera celda no parece ser un encabezado, insertar fila de encabezados
   if (primerValor !== 'fecha' && !primerValor.includes('fecha')) {
     console.log('Insertando encabezados faltantes en hoja de tarjetas...');
     hoja.insertRowBefore(1);
-    hoja.getRange(1, 1, 1, 8).setValues([[
+    hoja.getRange(1, 1, 1, 9).setValues([[
       'Fecha', 'Folio', 'Cliente', 'Servicio (s)', 'Monto',
-      '🧾 Recibo', '📦 # Lote', '🔍 Observaciones'
+      '🧾 Recibo', 'Afiliación', '📦 # Lote', '🔍 Observaciones'
     ]]);
     
     // Formatear encabezados
-    const headerRange = hoja.getRange(1, 1, 1, 8);
+    const headerRange = hoja.getRange(1, 1, 1, 9);
     headerRange.setFontWeight('bold');
     headerRange.setBackground('#f0f0f0');
-    hoja.getRange(1, 6, 1, 3).setBackground('#e6f3ff');
+    hoja.getRange(1, 6, 1, 4).setBackground('#e6f3ff'); // Zona protegida F-I
     
     console.log('Encabezados agregados');
   }
@@ -361,7 +361,7 @@ function obtenerOCrearHojaTarjetas(ss) {
     console.log(`Creando hoja "${NOMBRE_HOJA_TARJETAS}"...`);
     hoja = ss.insertSheet(NOMBRE_HOJA_TARJETAS);
     
-    // Encabezados para tarjetas
+    // Encabezados para tarjetas (9 columnas incluyendo Afiliación)
     hoja.appendRow([
       'Fecha',           // A - Script
       'Folio',           // B - Script
@@ -369,17 +369,18 @@ function obtenerOCrearHojaTarjetas(ss) {
       'Servicio (s)',    // D - Script
       'Monto',           // E - Script
       '🧾 Recibo',        // F - Manual (checkbox)
-      '📦 # Lote',        // G - Manual
-      '🔍 Observaciones'  // H - Manual
+      'Afiliación',      // G - Manual (número de afiliación terminal)
+      '📦 # Lote',        // H - Manual
+      '🔍 Observaciones'  // I - Manual
     ]);
     
     // Formatear encabezados
-    const headerRange = hoja.getRange(1, 1, 1, 8);
+    const headerRange = hoja.getRange(1, 1, 1, 9);
     headerRange.setFontWeight('bold');
     headerRange.setBackground('#f0f0f0');
     
-    // Zona protegida (F, G, H)
-    hoja.getRange(1, 6, 1, 3).setBackground('#e6f3ff'); // Azul claro para diferenciar
+    // Zona protegida (F, G, H, I)
+    hoja.getRange(1, 6, 1, 4).setBackground('#e6f3ff'); // Azul claro para diferenciar
     
     console.log(`Hoja "${NOMBRE_HOJA_TARJETAS}" creada`);
   } else {
@@ -417,10 +418,11 @@ function obtenerOCrearHojaCierres(ss) {
         headerRange.setBackground('#f0f0f0');
         
     // Agregar fila de ejemplo con fórmulas
+    // Nota: # Lote está en columna H de Tarjetas (después de Afiliación en G)
     hoja.getRange(2, 1).setValue(new Date());
     hoja.getRange(2, 2).setValue('EJEMPLO-001');
     hoja.getRange(2, 3).setValue(0);
-    hoja.getRange(2, 4).setFormula(`=SUMIF('${NOMBRE_HOJA_TARJETAS}'!G:G,B2,'${NOMBRE_HOJA_TARJETAS}'!E:E)`);
+    hoja.getRange(2, 4).setFormula(`=SUMIF('${NOMBRE_HOJA_TARJETAS}'!H:H,B2,'${NOMBRE_HOJA_TARJETAS}'!E:E)`);
     hoja.getRange(2, 5).setFormula('=IF(C2=D2,"✅","❌")');
     hoja.getRange(2, 6).setValue(false);
     hoja.getRange(2, 7).setValue('← Fila de ejemplo, puedes borrarla');
@@ -643,6 +645,183 @@ function sincronizarConciliacion() {
     
   } catch (error) {
     console.error('Error en sincronización:', error);
+    throw error;
+  }
+}
+
+/**
+ * Sincroniza un rango de fechas específico
+ * Usar para: vacaciones largas, correcciones históricas, sincronización inicial
+ * 
+ * @param {string} fechaInicioStr - Fecha de inicio en formato "d/M/yyyy" (ej: "1/11/2025")
+ * @param {string} fechaFinStr - Fecha de fin en formato "d/M/yyyy" (ej: "30/11/2025")
+ * 
+ * Ejemplo de uso:
+ *   sincronizarRango('1/11/2025', '30/11/2025')  // Sincroniza todo noviembre
+ *   sincronizarRango('1/12/2025', '15/12/2025') // Sincroniza primera quincena diciembre
+ */
+function sincronizarRango(fechaInicioStr, fechaFinStr) {
+  try {
+    // Parsear fechas
+    const fechaInicio = parsearFecha(fechaInicioStr);
+    const fechaFin = parsearFecha(fechaFinStr);
+    
+    if (!fechaInicio || !fechaFin) {
+      throw new Error(`Fechas inválidas. Usar formato d/M/yyyy. Recibido: inicio="${fechaInicioStr}", fin="${fechaFinStr}"`);
+    }
+    
+    if (fechaInicio > fechaFin) {
+      throw new Error('La fecha de inicio debe ser anterior o igual a la fecha de fin');
+    }
+    
+    // Normalizar a medianoche
+    fechaInicio.setHours(0, 0, 0, 0);
+    fechaFin.setHours(0, 0, 0, 0);
+    
+    console.log(`=== SINCRONIZACIÓN POR RANGO ===`);
+    console.log(`Desde: ${formatearFecha(fechaInicio)} hasta: ${formatearFecha(fechaFin)}`);
+    
+    const ssDestino = SpreadsheetApp.openById(ID_ARCHIVO_DESTINO);
+    const hojaTransferencias = obtenerOCrearHojaTransferencias(ssDestino);
+    const hojaTarjetas = obtenerOCrearHojaTarjetas(ssDestino);
+    obtenerOCrearHojaCierres(ssDestino);
+    
+    const ssOrigen = SpreadsheetApp.openById(ID_ARCHIVO_ORIGEN);
+    if (!ssOrigen) {
+      throw new Error('No se pudo abrir el archivo origen');
+    }
+    
+    // Construir mapas de folios existentes
+    const foliosTransferencias = construirMapaFolios(hojaTransferencias, 'TRANSFERENCIA');
+    const foliosTarjetas = construirMapaFolios(hojaTarjetas, 'TARJETA');
+    
+    // Arrays para acumular registros
+    const nuevosTransferencias = [];
+    const nuevosTarjetas = [];
+    const actualizadosTransferencias = [];
+    const actualizadosTarjetas = [];
+    const movimientosEntreHojas = [];
+    
+    // Calcular número de días en el rango
+    const diasEnRango = Math.ceil((fechaFin - fechaInicio) / (1000 * 60 * 60 * 24)) + 1;
+    console.log(`Procesando ${diasEnRango} días...`);
+    
+    // Procesar cada día del rango
+    for (let d = 0; d < diasEnRango; d++) {
+      const fechaBusqueda = new Date(fechaInicio);
+      fechaBusqueda.setDate(fechaBusqueda.getDate() + d);
+      
+      const nombrePestana = obtenerNombrePestana(fechaBusqueda);
+      let hojaOrigen;
+      
+      try {
+        hojaOrigen = ssOrigen.getSheetByName(nombrePestana);
+      } catch (e) {
+        continue;
+      }
+      
+      if (!hojaOrigen) continue;
+      
+      const datosOrigen = hojaOrigen.getDataRange().getValues();
+      
+      for (let i = 1; i < datosOrigen.length; i++) {
+        const fila = datosOrigen[i];
+        
+        // Determinar método de pago
+        const metodoPagoRaw = String(fila[COL_ORIGEN_METODO_PAGO] || '').toUpperCase();
+        const esTransferencia = metodoPagoRaw.includes('TRANSFERENCIA');
+        const esTarjeta = metodoPagoRaw.includes('TARJETA');
+        
+        if (!esTransferencia && !esTarjeta) continue;
+        
+        const metodoPago = esTransferencia ? 'TRANSFERENCIA' : 'TARJETA';
+        
+        // Parsear fecha
+        const fechaVenta = parsearFecha(fila[COL_ORIGEN_FECHA]);
+        if (!fechaVenta) continue;
+        
+        const fechaVentaSolo = new Date(fechaVenta.getFullYear(), fechaVenta.getMonth(), fechaVenta.getDate());
+        if (fechaVentaSolo < fechaInicio || fechaVentaSolo > fechaFin) continue;
+        
+        // Extraer datos
+        const folio = limpiarString(fila[COL_ORIGEN_FOLIO]);
+        const cliente = limpiarString(fila[COL_ORIGEN_CLIENTE]);
+        const servicio = limpiarString(fila[COL_ORIGEN_SERVICIO]);
+        const banco = limpiarString(fila[COL_ORIGEN_BANCO]);
+        const monto = parsearMonto(fila[COL_ORIGEN_COSTO_TOTAL]);
+        
+        if (!folio) continue;
+        
+        // Buscar en ambas hojas
+        const existeEnTransferencias = foliosTransferencias.get(folio);
+        const existeEnTarjetas = foliosTarjetas.get(folio);
+        
+        if (metodoPago === 'TRANSFERENCIA') {
+          if (existeEnTarjetas && existeEnTarjetas.rowIndex > 0) {
+            movimientosEntreHojas.push({
+              tipo: 'TARJETA_A_TRANSFERENCIA',
+              folio, rowIndexOrigen: existeEnTarjetas.rowIndex,
+              fecha: fechaVenta, cliente, servicio, banco, monto
+            });
+            foliosTarjetas.delete(folio);
+          } else if (existeEnTransferencias && existeEnTransferencias.rowIndex > 0) {
+            const cambios = detectarCambios(existeEnTransferencias, { fecha: fechaVenta, cliente, servicio, banco, monto });
+            if (cambios.hayCambios) {
+              actualizadosTransferencias.push({
+                rowIndex: existeEnTransferencias.rowIndex,
+                folio, fecha: fechaVenta, cliente, servicio, banco, monto, cambios
+              });
+            }
+          } else if (!existeEnTransferencias) {
+            nuevosTransferencias.push({ fecha: fechaVenta, folio, cliente, servicio, banco, monto });
+            foliosTransferencias.set(folio, { rowIndex: -1 });
+          }
+        } else { // TARJETA
+          if (existeEnTransferencias && existeEnTransferencias.rowIndex > 0) {
+            movimientosEntreHojas.push({
+              tipo: 'TRANSFERENCIA_A_TARJETA',
+              folio, rowIndexOrigen: existeEnTransferencias.rowIndex,
+              fecha: fechaVenta, cliente, servicio, monto
+            });
+            foliosTransferencias.delete(folio);
+          } else if (existeEnTarjetas && existeEnTarjetas.rowIndex > 0) {
+            const cambios = detectarCambiosTarjetas(existeEnTarjetas, { fecha: fechaVenta, cliente, servicio, monto });
+            if (cambios.hayCambios) {
+              actualizadosTarjetas.push({
+                rowIndex: existeEnTarjetas.rowIndex,
+                folio, fecha: fechaVenta, cliente, servicio, monto, cambios
+              });
+            }
+          } else if (!existeEnTarjetas) {
+            nuevosTarjetas.push({ fecha: fechaVenta, folio, cliente, servicio, monto });
+            foliosTarjetas.set(folio, { rowIndex: -1 });
+          }
+        }
+      }
+    }
+    
+    // Aplicar cambios
+    const hojaBitacora = obtenerOCrearBitacora(ssDestino);
+    
+    procesarMovimientosEntreHojas(movimientosEntreHojas, hojaTransferencias, hojaTarjetas, hojaBitacora);
+    insertarNuevosTransferencias(nuevosTransferencias, hojaTransferencias);
+    insertarNuevosTarjetas(nuevosTarjetas, hojaTarjetas);
+    actualizarTransferencias(actualizadosTransferencias, hojaTransferencias, hojaBitacora);
+    actualizarTarjetas(actualizadosTarjetas, hojaTarjetas, hojaBitacora);
+    
+    // Actualizar hipervínculos faltantes
+    actualizarHipervínculosFaltantes(hojaTransferencias, 2);
+    actualizarHipervínculosFaltantes(hojaTarjetas, 2);
+    
+    // Resumen
+    console.log('=== Sincronización por rango completada ===');
+    console.log(`Rango: ${formatearFecha(fechaInicio)} - ${formatearFecha(fechaFin)} (${diasEnRango} días)`);
+    console.log(`Transferencias: ${nuevosTransferencias.length} nuevos, ${actualizadosTransferencias.length} actualizados`);
+    console.log(`Tarjetas: ${nuevosTarjetas.length} nuevos, ${actualizadosTarjetas.length} actualizados`);
+    console.log(`Movimientos entre hojas: ${movimientosEntreHojas.length}`);
+    
+  } catch (error) {
+    console.error('Error en sincronización por rango:', error);
     throw error;
   }
 }
@@ -873,7 +1052,7 @@ function actualizarTarjetas(registros, hoja, hojaBitacora) {
   if (registros.length === 0) return;
   
   for (const reg of registros) {
-    // Actualizar solo columnas A-E (no tocar F-H zona protegida)
+    // Actualizar solo columnas A-E (no tocar F-I zona protegida)
     hoja.getRange(reg.rowIndex, 1).setValue(reg.fecha);
     hoja.getRange(reg.rowIndex, 1).setNumberFormat('d/M/yyyy');
     hoja.getRange(reg.rowIndex, 2).setValue(reg.folio);
