@@ -412,10 +412,10 @@ function obtenerOCrearHojaCierres(ss) {
       '🔍 Observaciones'  // G - Manual
     ]);
         
-        // Formatear encabezados
+    // Formatear encabezados
     const headerRange = hoja.getRange(1, 1, 1, 7);
-        headerRange.setFontWeight('bold');
-        headerRange.setBackground('#f0f0f0');
+    headerRange.setFontWeight('bold');
+    headerRange.setBackground('#f0f0f0');
         
     // Agregar fila de ejemplo con fórmulas
     // Nota: # Lote está en columna H de Tarjetas (después de Afiliación en G)
@@ -436,9 +436,42 @@ function obtenerOCrearHojaCierres(ss) {
     hoja.getRange(1, 4, 1, 2).setBackground('#d9ead3'); // Verde claro
     
     console.log(`Hoja "${NOMBRE_HOJA_CIERRES}" creada con fórmulas de ejemplo`);
+  } else {
+    // Hoja existe: verificar y actualizar fórmulas que apuntan a columna incorrecta
+    actualizarFormulasCierresLotes(hoja);
   }
   
   return hoja;
+}
+
+/**
+ * Actualiza las fórmulas en Cierres_Lotes para apuntar a la columna correcta
+ * Esto corrige fórmulas antiguas que apuntaban a G:G cuando # Lote estaba en columna G
+ */
+function actualizarFormulasCierresLotes(hoja) {
+  const ultimaFila = hoja.getLastRow();
+  if (ultimaFila < 2) return; // Solo encabezados o vacía
+  
+  let formulasActualizadas = 0;
+  const formulaCorrecta = `=SUMIF('${NOMBRE_HOJA_TARJETAS}'!H:H,B`;
+  const formulaIncorrecta = `'${NOMBRE_HOJA_TARJETAS}'!G:G`;
+  
+  // Revisar columna D (Total Folios) desde fila 2
+  for (let fila = 2; fila <= ultimaFila; fila++) {
+    const celda = hoja.getRange(fila, 4); // Columna D
+    const formula = celda.getFormula();
+    
+    if (formula && formula.includes(formulaIncorrecta)) {
+      // Actualizar fórmula para apuntar a columna H en lugar de G
+      const nuevaFormula = `=SUMIF('${NOMBRE_HOJA_TARJETAS}'!H:H,B${fila},'${NOMBRE_HOJA_TARJETAS}'!E:E)`;
+      celda.setFormula(nuevaFormula);
+      formulasActualizadas++;
+    }
+  }
+  
+  if (formulasActualizadas > 0) {
+    console.log(`Cierres_Lotes: ${formulasActualizadas} fórmulas actualizadas (G:G → H:H)`);
+  }
 }
 
 /**
