@@ -631,15 +631,16 @@ function sincronizarConciliacion() {
             // CAMBIÓ de Tarjeta a Transferencia - mover (solo si tiene rowIndex válido)
             movimientosEntreHojas.push({
               tipo: 'TARJETA_A_TRANSFERENCIA',
-            folio: folio,
+              folio: folio,
               rowIndexOrigen: existeEnTarjetas.rowIndex,
-            fecha: fechaVenta,
-            cliente: cliente,
-            servicio: servicio,
-            banco: banco,
-            monto: monto
-          });
+              fecha: fechaVenta,
+              cliente: cliente,
+              servicio: servicio,
+              banco: banco,
+              monto: monto
+            });
             foliosTarjetas.delete(folio);
+            foliosTransferencias.set(folio, { rowIndex: -1 }); // Marcar como procesado
           } else if (existeEnTransferencias && existeEnTransferencias.rowIndex > 0) {
             // Ya existe en transferencias con rowIndex válido - verificar cambios
             const cambios = detectarCambios(existeEnTransferencias, {
@@ -670,6 +671,7 @@ function sincronizarConciliacion() {
               monto: monto
             });
             foliosTransferencias.delete(folio);
+            foliosTarjetas.set(folio, { rowIndex: -1 }); // Marcar como procesado
           } else if (existeEnTarjetas && existeEnTarjetas.rowIndex > 0) {
             // Ya existe en tarjetas con rowIndex válido - verificar cambios
             const cambios = detectarCambiosTarjetas(existeEnTarjetas, {
@@ -837,6 +839,7 @@ function sincronizarRango(fechaInicioStr, fechaFinStr) {
               fecha: fechaVenta, cliente, servicio, banco, monto
             });
             foliosTarjetas.delete(folio);
+            foliosTransferencias.set(folio, { rowIndex: -1 }); // Marcar como procesado
           } else if (existeEnTransferencias && existeEnTransferencias.rowIndex > 0) {
             const cambios = detectarCambios(existeEnTransferencias, { fecha: fechaVenta, cliente, servicio, banco, monto });
             if (cambios.hayCambios) {
@@ -858,6 +861,7 @@ function sincronizarRango(fechaInicioStr, fechaFinStr) {
               fecha: fechaVenta, cliente, servicio, monto
             });
             foliosTransferencias.delete(folio);
+            foliosTarjetas.set(folio, { rowIndex: -1 }); // Marcar como procesado
           } else if (existeEnTarjetas && existeEnTarjetas.rowIndex > 0) {
             const cambios = detectarCambiosTarjetas(existeEnTarjetas, { fecha: fechaVenta, cliente, servicio, monto });
             if (cambios.hayCambios) {
