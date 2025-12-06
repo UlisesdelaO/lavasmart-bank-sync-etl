@@ -613,9 +613,8 @@ function sincronizarConciliacion() {
                 cambios: cambios
               });
             }
-          } else if (!existeEnTransferencias || !existeEnTransferencias.rowIndex || existeEnTransferencias.rowIndex <= 0) {
-            // Nuevo registro (no existe o tiene rowIndex inválido)
-            // Nota: Si ya está en el mapa con rowIndex <= 0, es porque fue agregado en esta misma ejecución
+          } else if (!existeEnTransferencias) {
+            // Nuevo registro
             nuevosTransferencias.push({ fecha: fechaVenta, folio, cliente, servicio, banco, monto });
             foliosTransferencias.set(folio, { rowIndex: -1 });
           }
@@ -644,9 +643,8 @@ function sincronizarConciliacion() {
                 cambios: cambios
               });
             }
-          } else if (!existeEnTarjetas || !existeEnTarjetas.rowIndex || existeEnTarjetas.rowIndex <= 0) {
-            // Nuevo registro (no existe o tiene rowIndex inválido)
-            // Nota: Si ya está en el mapa con rowIndex <= 0, es porque fue agregado en esta misma ejecución
+          } else if (!existeEnTarjetas) {
+            // Nuevo registro
             nuevosTarjetas.push({ fecha: fechaVenta, folio, cliente, servicio, monto });
             foliosTarjetas.set(folio, { rowIndex: -1 });
           }
@@ -655,7 +653,7 @@ function sincronizarConciliacion() {
     }
     
     // Aplicar cambios a las hojas
-      const hojaBitacora = obtenerOCrearBitacora(ssDestino);
+    const hojaBitacora = obtenerOCrearBitacora(ssDestino);
       
     // 1. Procesar movimientos entre hojas (cambios de método de pago)
     procesarMovimientosEntreHojas(movimientosEntreHojas, hojaTransferencias, hojaTarjetas, hojaBitacora);
@@ -807,9 +805,8 @@ function sincronizarRango(fechaInicioStr, fechaFinStr) {
                 folio, fecha: fechaVenta, cliente, servicio, banco, monto, cambios
               });
             }
-          } else if (!existeEnTransferencias || !existeEnTransferencias.rowIndex || existeEnTransferencias.rowIndex <= 0) {
-            // Nuevo registro (no existe o tiene rowIndex inválido)
-            // Nota: Si ya está en el mapa con rowIndex <= 0, es porque fue agregado en esta misma ejecución
+          } else if (!existeEnTransferencias) {
+            // Nuevo registro
             nuevosTransferencias.push({ fecha: fechaVenta, folio, cliente, servicio, banco, monto });
             foliosTransferencias.set(folio, { rowIndex: -1 });
           }
@@ -829,9 +826,8 @@ function sincronizarRango(fechaInicioStr, fechaFinStr) {
                 folio, fecha: fechaVenta, cliente, servicio, monto, cambios
               });
             }
-          } else if (!existeEnTarjetas || !existeEnTarjetas.rowIndex || existeEnTarjetas.rowIndex <= 0) {
-            // Nuevo registro (no existe o tiene rowIndex inválido)
-            // Nota: Si ya está en el mapa con rowIndex <= 0, es porque fue agregado en esta misma ejecución
+          } else if (!existeEnTarjetas) {
+            // Nuevo registro
             nuevosTarjetas.push({ fecha: fechaVenta, folio, cliente, servicio, monto });
             foliosTarjetas.set(folio, { rowIndex: -1 });
           }
