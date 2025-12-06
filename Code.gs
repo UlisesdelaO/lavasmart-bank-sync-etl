@@ -26,6 +26,7 @@ const NOMBRE_HOJA_TRANSFERENCIAS = 'Conciliacion_Transferencias';
 const NOMBRE_HOJA_TARJETAS = 'Conciliacion_Tarjetas';
 const NOMBRE_HOJA_CIERRES = 'Cierres_Lotes';
 const NOMBRE_HOJA_BITACORA = '📝 Bitácora_Cambios';
+const NOMBRE_HOJA_REVISION = '⚠️ Revisión_Pendiente';
 
 // Nombre antiguo de la hoja (para migración)
 const NOMBRE_HOJA_ANTIGUA = 'Conciliacion_Bancaria';
@@ -499,6 +500,44 @@ function obtenerOCrearBitacora(ss) {
   return hoja;
 }
 
+/**
+ * Obtiene o crea la hoja de revisión pendiente
+ */
+function obtenerOCrearHojaRevision(ss) {
+  let hoja = ss.getSheetByName(NOMBRE_HOJA_REVISION);
+  
+  if (!hoja) {
+    hoja = ss.insertSheet(NOMBRE_HOJA_REVISION);
+    hoja.appendRow([
+      'Timestamp',           // A - Cuándo se detectó
+      'Folio',               // B - Identificador
+      'Conflicto',           // C - Tipo de conflicto
+      'Hoja Origen',         // D - De dónde venía
+      'Hoja Destino',        // E - A dónde debería ir
+      'Fecha',               // F - Fecha del registro
+      'Cliente',             // G - Cliente
+      'Servicio',            // H - Servicio
+      'Monto',               // I - Monto
+      'Banco',               // J - Banco (si aplica)
+      '¿Conciliado?',        // K - Estaba conciliado
+      'Concepto Banco',      // L - Concepto que tenía
+      'Observaciones',       // M - Observaciones que tenía
+      'Estado'               // N - Pendiente/Resuelto
+    ]);
+    
+    const headerRange = hoja.getRange(1, 1, 1, 14);
+    headerRange.setFontWeight('bold');
+    headerRange.setBackground('#ffcccc'); // Rojo claro para llamar atención
+    
+    // Ajustar anchos de columna
+    hoja.setColumnWidth(3, 200); // Conflicto
+    hoja.setColumnWidth(12, 150); // Concepto Banco
+    hoja.setColumnWidth(13, 200); // Observaciones
+  }
+  
+  return hoja;
+}
+
 // ==================== FUNCIÓN PRINCIPAL ====================
 
 /**
@@ -654,9 +693,10 @@ function sincronizarConciliacion() {
     
     // Aplicar cambios a las hojas
     const hojaBitacora = obtenerOCrearBitacora(ssDestino);
+    const hojaRevision = obtenerOCrearHojaRevision(ssDestino);
       
     // 1. Procesar movimientos entre hojas (cambios de método de pago)
-    procesarMovimientosEntreHojas(movimientosEntreHojas, hojaTransferencias, hojaTarjetas, hojaBitacora);
+    procesarMovimientosEntreHojas(movimientosEntreHojas, hojaTransferencias, hojaTarjetas, hojaBitacora, hojaRevision);
     
     // 2. Insertar nuevos registros
     insertarNuevosTransferencias(nuevosTransferencias, hojaTransferencias);
@@ -837,8 +877,9 @@ function sincronizarRango(fechaInicioStr, fechaFinStr) {
     
     // Aplicar cambios
     const hojaBitacora = obtenerOCrearBitacora(ssDestino);
+    const hojaRevision = obtenerOCrearHojaRevision(ssDestino);
     
-    procesarMovimientosEntreHojas(movimientosEntreHojas, hojaTransferencias, hojaTarjetas, hojaBitacora);
+    procesarMovimientosEntreHojas(movimientosEntreHojas, hojaTransferencias, hojaTarjetas, hojaBitacora, hojaRevision);
     insertarNuevosTransferencias(nuevosTransferencias, hojaTransferencias);
     insertarNuevosTarjetas(nuevosTarjetas, hojaTarjetas);
     actualizarTransferencias(actualizadosTransferencias, hojaTransferencias, hojaBitacora);
@@ -935,9 +976,48 @@ function detectarCambiosTarjetas(existente, nuevo) {
 }
 
 /**
- * Procesa movimientos de registros entre hojas (cambio de método de pago)
+ * Verifica si una fila tiene trabajo manual (datos de conciliación)
+ * @param {Sheet} hoja - Hoja a verificar
+ * @param {number} rowIndex - Índice de fila
+ * @param {string} tipo - 'TRANSFERENCIA' o 'TARJETA'
+ * @return {object} {tieneTrabajoManual, conciliado, conceptoBanco, observaciones}
  */
-function procesarMovimientosEntreHojas(movimientos, hojaTransferencias, hojaTarjetas, hojaBitacora) {
+function verificarTrabajoManual(hoja, rowIndex, tipo) {
+  if (tipo === 'TRANSFERENCIA') {
+    // Transferencias: G=Conciliado, H=Concepto Banco, I=Observaciones
+    const valores = hoja.getRange(rowIndex, 7, 1, 3).getValues()[0];
+    const conciliado = valores[0] === true || valores[0] === 'TRUE';
+    const conceptoBanco = String(valores[1] || '').trim();
+    const observaciones = String(valores[2] || '').trim();
+    
+    return {
+      tieneTrabajoManual: conciliado || conceptoBanco !== '' || observaciones !== '',
+      conciliado: conciliado,
+      conceptoBanco: conceptoBanco,
+      observaciones: observaciones
+    };
+  } else { // TARJETA
+    // Tarjetas: F=Recibo, G=Afiliación, H=# Lote, I=Observaciones
+    const valores = hoja.getRange(rowIndex, 6, 1, 4).getValues()[0];
+    const recibo = valores[0] === true || valores[0] === 'TRUE';
+    const afiliacion = String(valores[1] || '').trim();
+    const lote = String(valores[2] || '').trim();
+    const observaciones = String(valores[3] || '').trim();
+    
+    return {
+      tieneTrabajoManual: recibo || afiliacion !== '' || lote !== '' || observaciones !== '',
+      conciliado: recibo, // Usamos recibo como indicador de "procesado"
+      conceptoBanco: `Afiliación: ${afiliacion}; Lote: ${lote}`,
+      observaciones: observaciones
+    };
+  }
+}
+
+/**
+ * Procesa movimientos de registros entre hojas (cambio de método de pago)
+ * Si el registro tiene trabajo manual, va a hoja de revisión en lugar de moverse
+ */
+function procesarMovimientosEntreHojas(movimientos, hojaTransferencias, hojaTarjetas, hojaBitacora, hojaRevision) {
   // Ordenar por rowIndex descendente para eliminar sin afectar índices
   const tarjetaATransferencia = movimientos
     .filter(m => m.tipo === 'TARJETA_A_TRANSFERENCIA')
@@ -947,62 +1027,146 @@ function procesarMovimientosEntreHojas(movimientos, hojaTransferencias, hojaTarj
     .filter(m => m.tipo === 'TRANSFERENCIA_A_TARJETA')
     .sort((a, b) => b.rowIndexOrigen - a.rowIndexOrigen);
   
+  let movidosARevision = 0;
+  let movidosNormales = 0;
+  
   // Procesar TARJETA → TRANSFERENCIA
   for (const mov of tarjetaATransferencia) {
-    // Eliminar de tarjetas
-    hojaTarjetas.deleteRow(mov.rowIndexOrigen);
+    // Verificar si tiene trabajo manual antes de eliminar
+    const trabajo = verificarTrabajoManual(hojaTarjetas, mov.rowIndexOrigen, 'TARJETA');
     
-    // Agregar a transferencias
-    const ultimaFila = hojaTransferencias.getLastRow();
-    hojaTransferencias.getRange(ultimaFila + 1, 1, 1, 6).setValues([[
-      mov.fecha, mov.folio, mov.cliente, mov.servicio, mov.banco, mov.monto
-    ]]);
-    hojaTransferencias.getRange(ultimaFila + 1, 1).setNumberFormat('d/M/yyyy');
-    hojaTransferencias.getRange(ultimaFila + 1, 6).setNumberFormat('$#,##0.00');
-    
-    // Aplicar hipervínculo al folio
-    aplicarHipervínculosFolios(hojaTransferencias, ultimaFila + 1, 2, [mov.folio]);
-    
-    // Registrar en bitácora
-    hojaBitacora.appendRow([
-      new Date(),
-      mov.folio,
-      'CAMBIO MÉTODO PAGO',
-      'TARJETA → TRANSFERENCIA',
-      'Hoja: Conciliacion_Tarjetas',
-      'Hoja: Conciliacion_Transferencias'
-    ]);
-    
-    console.log(`Folio ${mov.folio} movido de Tarjetas a Transferencias`);
+    if (trabajo.tieneTrabajoManual) {
+      // Tiene trabajo manual → Mover a hoja de revisión
+      hojaRevision.appendRow([
+        new Date(),                           // Timestamp
+        mov.folio,                            // Folio
+        'Cambio método pago: TARJETA → TRANSFERENCIA', // Conflicto
+        NOMBRE_HOJA_TARJETAS,                 // Hoja Origen
+        NOMBRE_HOJA_TRANSFERENCIAS,           // Hoja Destino
+        mov.fecha,                            // Fecha
+        mov.cliente,                          // Cliente
+        mov.servicio,                         // Servicio
+        mov.monto,                            // Monto
+        mov.banco || '',                      // Banco
+        trabajo.conciliado ? 'Sí' : 'No',    // ¿Conciliado?
+        trabajo.conceptoBanco,                // Concepto Banco
+        trabajo.observaciones,                // Observaciones
+        'Pendiente'                           // Estado
+      ]);
+      
+      // Eliminar de tarjetas
+      hojaTarjetas.deleteRow(mov.rowIndexOrigen);
+      
+      // Registrar en bitácora
+      hojaBitacora.appendRow([
+        new Date(),
+        mov.folio,
+        'CONFLICTO → REVISIÓN',
+        'TARJETA → TRANSFERENCIA (tenía trabajo manual)',
+        `Conciliado: ${trabajo.conciliado}; ${trabajo.conceptoBanco}`,
+        'Movido a: ' + NOMBRE_HOJA_REVISION
+      ]);
+      
+      console.log(`⚠️ Folio ${mov.folio} movido a REVISIÓN (tenía trabajo manual)`);
+      movidosARevision++;
+    } else {
+      // Sin trabajo manual → Mover normalmente
+      hojaTarjetas.deleteRow(mov.rowIndexOrigen);
+      
+      const ultimaFila = hojaTransferencias.getLastRow();
+      hojaTransferencias.getRange(ultimaFila + 1, 1, 1, 6).setValues([[
+        mov.fecha, mov.folio, mov.cliente, mov.servicio, mov.banco, mov.monto
+      ]]);
+      hojaTransferencias.getRange(ultimaFila + 1, 1).setNumberFormat('d/M/yyyy');
+      hojaTransferencias.getRange(ultimaFila + 1, 6).setNumberFormat('$#,##0.00');
+      
+      aplicarHipervínculosFolios(hojaTransferencias, ultimaFila + 1, 2, [mov.folio]);
+      
+      hojaBitacora.appendRow([
+        new Date(),
+        mov.folio,
+        'CAMBIO MÉTODO PAGO',
+        'TARJETA → TRANSFERENCIA',
+        'Hoja: ' + NOMBRE_HOJA_TARJETAS,
+        'Hoja: ' + NOMBRE_HOJA_TRANSFERENCIAS
+      ]);
+      
+      console.log(`Folio ${mov.folio} movido de Tarjetas a Transferencias`);
+      movidosNormales++;
+    }
   }
   
   // Procesar TRANSFERENCIA → TARJETA
   for (const mov of transferenciaATarjeta) {
-    // Eliminar de transferencias
-    hojaTransferencias.deleteRow(mov.rowIndexOrigen);
+    // Verificar si tiene trabajo manual antes de eliminar
+    const trabajo = verificarTrabajoManual(hojaTransferencias, mov.rowIndexOrigen, 'TRANSFERENCIA');
     
-    // Agregar a tarjetas (sin columna Banco)
-    const ultimaFila = hojaTarjetas.getLastRow();
-    hojaTarjetas.getRange(ultimaFila + 1, 1, 1, 5).setValues([[
-      mov.fecha, mov.folio, mov.cliente, mov.servicio, mov.monto
-    ]]);
-    hojaTarjetas.getRange(ultimaFila + 1, 1).setNumberFormat('d/M/yyyy');
-    hojaTarjetas.getRange(ultimaFila + 1, 5).setNumberFormat('$#,##0.00');
-    
-    // Aplicar hipervínculo al folio
-    aplicarHipervínculosFolios(hojaTarjetas, ultimaFila + 1, 2, [mov.folio]);
-    
-    // Registrar en bitácora
-    hojaBitacora.appendRow([
-      new Date(),
-      mov.folio,
-      'CAMBIO MÉTODO PAGO',
-      'TRANSFERENCIA → TARJETA',
-      'Hoja: Conciliacion_Transferencias',
-      'Hoja: Conciliacion_Tarjetas'
-    ]);
-    
-    console.log(`Folio ${mov.folio} movido de Transferencias a Tarjetas`);
+    if (trabajo.tieneTrabajoManual) {
+      // Tiene trabajo manual → Mover a hoja de revisión
+      hojaRevision.appendRow([
+        new Date(),                           // Timestamp
+        mov.folio,                            // Folio
+        'Cambio método pago: TRANSFERENCIA → TARJETA', // Conflicto
+        NOMBRE_HOJA_TRANSFERENCIAS,           // Hoja Origen
+        NOMBRE_HOJA_TARJETAS,                 // Hoja Destino
+        mov.fecha,                            // Fecha
+        mov.cliente,                          // Cliente
+        mov.servicio,                         // Servicio
+        mov.monto,                            // Monto
+        '',                                   // Banco (no aplica para tarjetas)
+        trabajo.conciliado ? 'Sí' : 'No',    // ¿Conciliado?
+        trabajo.conceptoBanco,                // Concepto Banco
+        trabajo.observaciones,                // Observaciones
+        'Pendiente'                           // Estado
+      ]);
+      
+      // Eliminar de transferencias
+      hojaTransferencias.deleteRow(mov.rowIndexOrigen);
+      
+      // Registrar en bitácora
+      hojaBitacora.appendRow([
+        new Date(),
+        mov.folio,
+        'CONFLICTO → REVISIÓN',
+        'TRANSFERENCIA → TARJETA (tenía trabajo manual)',
+        `Conciliado: ${trabajo.conciliado}; ${trabajo.conceptoBanco}`,
+        'Movido a: ' + NOMBRE_HOJA_REVISION
+      ]);
+      
+      console.log(`⚠️ Folio ${mov.folio} movido a REVISIÓN (tenía trabajo manual)`);
+      movidosARevision++;
+    } else {
+      // Sin trabajo manual → Mover normalmente
+      hojaTransferencias.deleteRow(mov.rowIndexOrigen);
+      
+      const ultimaFila = hojaTarjetas.getLastRow();
+      hojaTarjetas.getRange(ultimaFila + 1, 1, 1, 5).setValues([[
+        mov.fecha, mov.folio, mov.cliente, mov.servicio, mov.monto
+      ]]);
+      hojaTarjetas.getRange(ultimaFila + 1, 1).setNumberFormat('d/M/yyyy');
+      hojaTarjetas.getRange(ultimaFila + 1, 5).setNumberFormat('$#,##0.00');
+      
+      aplicarHipervínculosFolios(hojaTarjetas, ultimaFila + 1, 2, [mov.folio]);
+      
+      hojaBitacora.appendRow([
+        new Date(),
+        mov.folio,
+        'CAMBIO MÉTODO PAGO',
+        'TRANSFERENCIA → TARJETA',
+        'Hoja: ' + NOMBRE_HOJA_TRANSFERENCIAS,
+        'Hoja: ' + NOMBRE_HOJA_TARJETAS
+      ]);
+      
+      console.log(`Folio ${mov.folio} movido de Transferencias a Tarjetas`);
+      movidosNormales++;
+    }
+  }
+  
+  if (movidosARevision > 0) {
+    console.log(`⚠️ ${movidosARevision} registros enviados a Revisión Pendiente`);
+  }
+  if (movidosNormales > 0) {
+    console.log(`✓ ${movidosNormales} registros movidos entre hojas`);
   }
 }
 
