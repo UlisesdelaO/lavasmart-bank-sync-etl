@@ -501,6 +501,36 @@ function obtenerOCrearBitacora(ss) {
 }
 
 /**
+ * Registra un evento en la bitácora con hipervínculo en el folio
+ * @param {Sheet} hojaBitacora - Hoja de bitácora
+ * @param {string} folio - Número de folio
+ * @param {string} accion - Tipo de acción (ACTUALIZACIÓN, ELIMINACIÓN, etc.)
+ * @param {string} detalle - Descripción del cambio
+ * @param {string} valoresAnteriores - Valores antes del cambio
+ * @param {string} valoresNuevos - Valores después del cambio
+ */
+function registrarEnBitacora(hojaBitacora, folio, accion, detalle, valoresAnteriores, valoresNuevos) {
+  const ultimaFila = hojaBitacora.getLastRow() + 1;
+  
+  // Agregar la fila con los datos
+  hojaBitacora.getRange(ultimaFila, 1, 1, 6).setValues([[
+    new Date(),
+    folio,
+    accion,
+    detalle,
+    valoresAnteriores,
+    valoresNuevos
+  ]]);
+  
+  // Aplicar hipervínculo al folio (columna B = 2)
+  const url = buscarCarpetaEnDrive(folio);
+  if (url) {
+    const richText = crearHipervínculoFolio(folio, url);
+    hojaBitacora.getRange(ultimaFila, 2).setRichTextValue(richText);
+  }
+}
+
+/**
  * Obtiene o crea la hoja de revisión pendiente
  */
 function obtenerOCrearHojaRevision(ss) {
@@ -576,6 +606,10 @@ function sincronizarConciliacion() {
     const actualizadosTarjetas = [];
     const movimientosEntreHojas = []; // Para cambios de método de pago
     
+    // Sets para rastrear folios encontrados en origen (para detectar eliminaciones)
+    const foliosEncontradosTransferencias = new Set();
+    const foliosEncontradosTarjetas = new Set();
+    
     // Procesar cada día del rango
     for (let d = 0; d <= DIAS_LOOKBACK; d++) {
       const fechaBusqueda = new Date(fechaInicio);
@@ -627,6 +661,7 @@ function sincronizarConciliacion() {
         const existeEnTarjetas = foliosTarjetas.get(folio);
         
         if (metodoPago === 'TRANSFERENCIA') {
+          foliosEncontradosTransferencias.add(folio); // Marcar como encontrado en origen
           if (existeEnTarjetas && existeEnTarjetas.rowIndex > 0) {
             // CAMBIÓ de Tarjeta a Transferencia - mover (solo si tiene rowIndex válido)
             movimientosEntreHojas.push({
@@ -659,6 +694,7 @@ function sincronizarConciliacion() {
             foliosTransferencias.set(folio, { rowIndex: -1 });
           }
         } else { // TARJETA
+          foliosEncontradosTarjetas.add(folio); // Marcar como encontrado en origen
           if (existeEnTransferencias && existeEnTransferencias.rowIndex > 0) {
             // CAMBIÓ de Transferencia a Tarjeta - mover (solo si tiene rowIndex válido)
             movimientosEntreHojas.push({
@@ -712,10 +748,18 @@ function sincronizarConciliacion() {
     actualizarHipervínculosFaltantes(hojaTransferencias, 2);
     actualizarHipervínculosFaltantes(hojaTarjetas, 2);
     
+    // 5. Detectar eliminaciones (folios en destino que ya no están en origen)
+    const eliminacionesTransferencias = detectarEliminaciones(
+      foliosTransferencias, foliosEncontradosTransferencias, fechaInicio, hoy, 'TRANSFERENCIA', hojaBitacora
+    );
+    const eliminacionesTarjetas = detectarEliminaciones(
+      foliosTarjetas, foliosEncontradosTarjetas, fechaInicio, hoy, 'TARJETA', hojaBitacora
+    );
+    
     // Resumen
     console.log('=== Sincronización completada ===');
-    console.log(`Transferencias: ${nuevosTransferencias.length} nuevos, ${actualizadosTransferencias.length} actualizados`);
-    console.log(`Tarjetas: ${nuevosTarjetas.length} nuevos, ${actualizadosTarjetas.length} actualizados`);
+    console.log(`Transferencias: ${nuevosTransferencias.length} nuevos, ${actualizadosTransferencias.length} actualizados, ${eliminacionesTransferencias} eliminaciones detectadas`);
+    console.log(`Tarjetas: ${nuevosTarjetas.length} nuevos, ${actualizadosTarjetas.length} actualizados, ${eliminacionesTarjetas} eliminaciones detectadas`);
     console.log(`Movimientos entre hojas: ${movimientosEntreHojas.length}`);
     
   } catch (error) {
@@ -777,6 +821,10 @@ function sincronizarRango(fechaInicioStr, fechaFinStr) {
     const actualizadosTarjetas = [];
     const movimientosEntreHojas = [];
     
+    // Sets para rastrear folios encontrados en origen (para detectar eliminaciones)
+    const foliosEncontradosTransferencias = new Set();
+    const foliosEncontradosTarjetas = new Set();
+    
     // Calcular número de días en el rango
     const diasEnRango = Math.ceil((fechaFin - fechaInicio) / (1000 * 60 * 60 * 24)) + 1;
     console.log(`Procesando ${diasEnRango} días...`);
@@ -832,6 +880,7 @@ function sincronizarRango(fechaInicioStr, fechaFinStr) {
         const existeEnTarjetas = foliosTarjetas.get(folio);
         
         if (metodoPago === 'TRANSFERENCIA') {
+          foliosEncontradosTransferencias.add(folio); // Marcar como encontrado en origen
           if (existeEnTarjetas && existeEnTarjetas.rowIndex > 0) {
             movimientosEntreHojas.push({
               tipo: 'TARJETA_A_TRANSFERENCIA',
@@ -854,6 +903,7 @@ function sincronizarRango(fechaInicioStr, fechaFinStr) {
             foliosTransferencias.set(folio, { rowIndex: -1 });
           }
         } else { // TARJETA
+          foliosEncontradosTarjetas.add(folio); // Marcar como encontrado en origen
           if (existeEnTransferencias && existeEnTransferencias.rowIndex > 0) {
             movimientosEntreHojas.push({
               tipo: 'TRANSFERENCIA_A_TARJETA',
@@ -893,11 +943,19 @@ function sincronizarRango(fechaInicioStr, fechaFinStr) {
     actualizarHipervínculosFaltantes(hojaTransferencias, 2);
     actualizarHipervínculosFaltantes(hojaTarjetas, 2);
     
+    // Detectar eliminaciones
+    const eliminacionesTransferencias = detectarEliminaciones(
+      foliosTransferencias, foliosEncontradosTransferencias, fechaInicio, fechaFin, 'TRANSFERENCIA', hojaBitacora
+    );
+    const eliminacionesTarjetas = detectarEliminaciones(
+      foliosTarjetas, foliosEncontradosTarjetas, fechaInicio, fechaFin, 'TARJETA', hojaBitacora
+    );
+    
     // Resumen
     console.log('=== Sincronización por rango completada ===');
     console.log(`Rango: ${formatearFecha(fechaInicio)} - ${formatearFecha(fechaFin)} (${diasEnRango} días)`);
-    console.log(`Transferencias: ${nuevosTransferencias.length} nuevos, ${actualizadosTransferencias.length} actualizados`);
-    console.log(`Tarjetas: ${nuevosTarjetas.length} nuevos, ${actualizadosTarjetas.length} actualizados`);
+    console.log(`Transferencias: ${nuevosTransferencias.length} nuevos, ${actualizadosTransferencias.length} actualizados, ${eliminacionesTransferencias} eliminaciones`);
+    console.log(`Tarjetas: ${nuevosTarjetas.length} nuevos, ${actualizadosTarjetas.length} actualizados, ${eliminacionesTarjetas} eliminaciones`);
     console.log(`Movimientos entre hojas: ${movimientosEntreHojas.length}`);
     
   } catch (error) {
@@ -907,6 +965,47 @@ function sincronizarRango(fechaInicioStr, fechaFinStr) {
 }
 
 // ==================== FUNCIONES AUXILIARES ====================
+
+/**
+ * Detecta eliminaciones: folios que existían en destino pero ya no están en origen
+ * @param {Map} mapaFolios - Mapa de folios existentes en destino
+ * @param {Set} foliosEncontrados - Set de folios encontrados en origen
+ * @param {Date} fechaInicio - Fecha inicio del rango de búsqueda
+ * @param {Date} fechaFin - Fecha fin del rango de búsqueda
+ * @param {string} tipo - 'TRANSFERENCIA' o 'TARJETA'
+ * @param {Sheet} hojaBitacora - Hoja de bitácora
+ * @return {number} Cantidad de eliminaciones detectadas
+ */
+function detectarEliminaciones(mapaFolios, foliosEncontrados, fechaInicio, fechaFin, tipo, hojaBitacora) {
+  let eliminaciones = 0;
+  
+  for (const [folio, datos] of mapaFolios) {
+    // Solo considerar folios que existían antes de esta ejecución (rowIndex > 0)
+    if (datos.rowIndex <= 0) continue;
+    
+    // Verificar si la fecha del folio está en el rango de búsqueda
+    const fechaFolio = datos.fecha;
+    if (!fechaFolio) continue;
+    
+    const fechaFolioSolo = new Date(fechaFolio.getFullYear(), fechaFolio.getMonth(), fechaFolio.getDate());
+    if (fechaFolioSolo < fechaInicio || fechaFolioSolo > fechaFin) continue;
+    
+    // Si el folio no fue encontrado en origen, es una eliminación
+    if (!foliosEncontrados.has(folio)) {
+      registrarEnBitacora(hojaBitacora, folio,
+        'ELIMINACIÓN DETECTADA',
+        `Folio en ${tipo} ya no existe en origen`,
+        `Fecha: ${formatearFecha(fechaFolio)}; Cliente: ${datos.cliente || ''}; Monto: ${datos.monto || 0}`,
+        'El folio fue eliminado o cambió de método de pago en el archivo origen'
+      );
+      
+      console.log(`🗑️ Eliminación detectada: Folio ${folio} (${tipo})`);
+      eliminaciones++;
+    }
+  }
+  
+  return eliminaciones;
+}
 
 /**
  * Construye un mapa de folios existentes en una hoja
@@ -1062,14 +1161,12 @@ function procesarMovimientosEntreHojas(movimientos, hojaTransferencias, hojaTarj
       hojaTarjetas.deleteRow(mov.rowIndexOrigen);
       
       // Registrar en bitácora
-      hojaBitacora.appendRow([
-        new Date(),
-        mov.folio,
+      registrarEnBitacora(hojaBitacora, mov.folio,
         'CONFLICTO → REVISIÓN',
         'TARJETA → TRANSFERENCIA (tenía trabajo manual)',
         `Conciliado: ${trabajo.conciliado}; ${trabajo.conceptoBanco}`,
         'Movido a: ' + NOMBRE_HOJA_REVISION
-      ]);
+      );
       
       console.log(`⚠️ Folio ${mov.folio} movido a REVISIÓN (tenía trabajo manual)`);
       movidosARevision++;
@@ -1086,14 +1183,12 @@ function procesarMovimientosEntreHojas(movimientos, hojaTransferencias, hojaTarj
       
       aplicarHipervínculosFolios(hojaTransferencias, ultimaFila + 1, 2, [mov.folio]);
       
-      hojaBitacora.appendRow([
-        new Date(),
-        mov.folio,
+      registrarEnBitacora(hojaBitacora, mov.folio,
         'CAMBIO MÉTODO PAGO',
         'TARJETA → TRANSFERENCIA',
         'Hoja: ' + NOMBRE_HOJA_TARJETAS,
         'Hoja: ' + NOMBRE_HOJA_TRANSFERENCIAS
-      ]);
+      );
       
       console.log(`Folio ${mov.folio} movido de Tarjetas a Transferencias`);
       movidosNormales++;
@@ -1128,14 +1223,12 @@ function procesarMovimientosEntreHojas(movimientos, hojaTransferencias, hojaTarj
       hojaTransferencias.deleteRow(mov.rowIndexOrigen);
       
       // Registrar en bitácora
-      hojaBitacora.appendRow([
-        new Date(),
-        mov.folio,
+      registrarEnBitacora(hojaBitacora, mov.folio,
         'CONFLICTO → REVISIÓN',
         'TRANSFERENCIA → TARJETA (tenía trabajo manual)',
         `Conciliado: ${trabajo.conciliado}; ${trabajo.conceptoBanco}`,
         'Movido a: ' + NOMBRE_HOJA_REVISION
-      ]);
+      );
       
       console.log(`⚠️ Folio ${mov.folio} movido a REVISIÓN (tenía trabajo manual)`);
       movidosARevision++;
@@ -1152,14 +1245,12 @@ function procesarMovimientosEntreHojas(movimientos, hojaTransferencias, hojaTarj
       
       aplicarHipervínculosFolios(hojaTarjetas, ultimaFila + 1, 2, [mov.folio]);
       
-      hojaBitacora.appendRow([
-        new Date(),
-        mov.folio,
+      registrarEnBitacora(hojaBitacora, mov.folio,
         'CAMBIO MÉTODO PAGO',
         'TRANSFERENCIA → TARJETA',
         'Hoja: ' + NOMBRE_HOJA_TRANSFERENCIAS,
         'Hoja: ' + NOMBRE_HOJA_TARJETAS
-      ]);
+      );
       
       console.log(`Folio ${mov.folio} movido de Transferencias a Tarjetas`);
       movidosNormales++;
@@ -1234,14 +1325,12 @@ function actualizarTransferencias(registros, hoja, hojaBitacora) {
     // Registrar en bitácora
     const cambiosTexto = construirTextoCambios(reg.cambios, 'TRANSFERENCIA');
     if (cambiosTexto) {
-      hojaBitacora.appendRow([
-        new Date(),
-        reg.folio,
+      registrarEnBitacora(hojaBitacora, reg.folio,
         'ACTUALIZACIÓN',
         cambiosTexto.descripcion,
         cambiosTexto.anterior,
         cambiosTexto.nuevo
-      ]);
+      );
     }
   }
   
@@ -1267,14 +1356,12 @@ function actualizarTarjetas(registros, hoja, hojaBitacora) {
     // Registrar en bitácora
     const cambiosTexto = construirTextoCambios(reg.cambios, 'TARJETA');
     if (cambiosTexto) {
-      hojaBitacora.appendRow([
-        new Date(),
-        reg.folio,
+      registrarEnBitacora(hojaBitacora, reg.folio,
         'ACTUALIZACIÓN',
         cambiosTexto.descripcion,
         cambiosTexto.anterior,
         cambiosTexto.nuevo
-      ]);
+      );
     }
   }
   
