@@ -687,6 +687,10 @@ function sincronizarConciliacion() {
     const actualizadosOtros = [];
     const movimientosEntreHojas = []; // Para cambios de método de pago
     
+    // Set para detectar folios duplicados en origen durante esta ejecución
+    const foliosProcesadosEnEstaEjecucion = new Set();
+    const foliosDuplicadosEnOrigen = [];
+    
     // Sets para rastrear folios encontrados en origen (para detectar eliminaciones)
     const foliosEncontradosTransferencias = new Set();
     const foliosEncontradosTarjetas = new Set();
@@ -744,6 +748,21 @@ function sincronizarConciliacion() {
         const monto = parsearMonto(fila[COL_ORIGEN_COSTO_TOTAL]);
         
         if (!folio) continue;
+        
+        // Verificar si este folio ya fue procesado en esta ejecución (duplicado en origen)
+        if (foliosProcesadosEnEstaEjecucion.has(folio)) {
+          foliosDuplicadosEnOrigen.push({
+            folio: folio,
+            fecha: fechaVenta,
+            cliente: cliente,
+            monto: monto,
+            metodoPago: metodoPago,
+            pestaña: nombrePestana
+          });
+          console.log(`⚠️ Folio duplicado en origen: ${folio} (${nombrePestana})`);
+          continue; // Ignorar el duplicado, quedarse con el primero encontrado
+        }
+        foliosProcesadosEnEstaEjecucion.add(folio);
         
         // Buscar en todas las hojas
         const existeEnTransferencias = foliosTransferencias.get(folio);
@@ -811,6 +830,18 @@ function sincronizarConciliacion() {
       foliosOtros, foliosEncontradosOtros, fechaInicio, hoy, 'OTROS', hojaBitacora
     );
     
+    // 6. Registrar duplicados encontrados en origen
+    if (foliosDuplicadosEnOrigen.length > 0) {
+      for (const dup of foliosDuplicadosEnOrigen) {
+        registrarEnBitacora(hojaBitacora, dup.folio,
+          'DUPLICADO EN ORIGEN',
+          `Folio encontrado múltiples veces en archivo origen (${dup.pestaña})`,
+          `Método: ${dup.metodoPago}; Monto: ${dup.monto}`,
+          'Se conservó la primera aparición, se ignoraron las siguientes'
+        );
+      }
+    }
+    
     // Resumen
     console.log('=== Sincronización completada ===');
     console.log(`Transferencias: ${nuevosTransferencias.length} nuevos, ${actualizadosTransferencias.length} actualizados, ${eliminacionesTransferencias} eliminaciones`);
@@ -818,6 +849,9 @@ function sincronizarConciliacion() {
     console.log(`Efectivo: ${nuevosEfectivo.length} nuevos, ${actualizadosEfectivo.length} actualizados, ${eliminacionesEfectivo} eliminaciones`);
     console.log(`Otros: ${nuevosOtros.length} nuevos, ${actualizadosOtros.length} actualizados, ${eliminacionesOtros} eliminaciones`);
     console.log(`Movimientos entre hojas: ${movimientosEntreHojas.length}`);
+    if (foliosDuplicadosEnOrigen.length > 0) {
+      console.log(`⚠️ Duplicados en origen: ${foliosDuplicadosEnOrigen.length} (ver bitácora)`);
+    }
     
   } catch (error) {
     console.error('Error en sincronización:', error);
@@ -886,6 +920,10 @@ function sincronizarRango(fechaInicioStr, fechaFinStr) {
     const actualizadosOtros = [];
     const movimientosEntreHojas = [];
     
+    // Set para detectar folios duplicados en origen durante esta ejecución
+    const foliosProcesadosEnEstaEjecucion = new Set();
+    const foliosDuplicadosEnOrigen = [];
+    
     // Sets para rastrear folios encontrados en origen (para detectar eliminaciones)
     const foliosEncontradosTransferencias = new Set();
     const foliosEncontradosTarjetas = new Set();
@@ -948,6 +986,21 @@ function sincronizarRango(fechaInicioStr, fechaFinStr) {
         
         if (!folio) continue;
         
+        // Verificar si este folio ya fue procesado en esta ejecución (duplicado en origen)
+        if (foliosProcesadosEnEstaEjecucion.has(folio)) {
+          foliosDuplicadosEnOrigen.push({
+            folio: folio,
+            fecha: fechaVenta,
+            cliente: cliente,
+            monto: monto,
+            metodoPago: metodoPago,
+            pestaña: nombrePestana
+          });
+          console.log(`⚠️ Folio duplicado en origen: ${folio} (${nombrePestana})`);
+          continue; // Ignorar el duplicado, quedarse con el primero encontrado
+        }
+        foliosProcesadosEnEstaEjecucion.add(folio);
+        
         // Buscar en todas las hojas
         const existeEnTransferencias = foliosTransferencias.get(folio);
         const existeEnTarjetas = foliosTarjetas.get(folio);
@@ -1009,6 +1062,18 @@ function sincronizarRango(fechaInicioStr, fechaFinStr) {
       foliosOtros, foliosEncontradosOtros, fechaInicio, fechaFin, 'OTROS', hojaBitacora
     );
     
+    // Registrar duplicados encontrados en origen
+    if (foliosDuplicadosEnOrigen.length > 0) {
+      for (const dup of foliosDuplicadosEnOrigen) {
+        registrarEnBitacora(hojaBitacora, dup.folio,
+          'DUPLICADO EN ORIGEN',
+          `Folio encontrado múltiples veces en archivo origen (${dup.pestaña})`,
+          `Método: ${dup.metodoPago}; Monto: ${dup.monto}`,
+          'Se conservó la primera aparición, se ignoraron las siguientes'
+        );
+      }
+    }
+    
     // Resumen
     console.log('=== Sincronización por rango completada ===');
     console.log(`Rango: ${formatearFecha(fechaInicio)} - ${formatearFecha(fechaFin)} (${diasEnRango} días)`);
@@ -1017,6 +1082,9 @@ function sincronizarRango(fechaInicioStr, fechaFinStr) {
     console.log(`Efectivo: ${nuevosEfectivo.length} nuevos, ${actualizadosEfectivo.length} actualizados, ${eliminacionesEfectivo} eliminaciones`);
     console.log(`Otros: ${nuevosOtros.length} nuevos, ${actualizadosOtros.length} actualizados, ${eliminacionesOtros} eliminaciones`);
     console.log(`Movimientos entre hojas: ${movimientosEntreHojas.length}`);
+    if (foliosDuplicadosEnOrigen.length > 0) {
+      console.log(`⚠️ Duplicados en origen: ${foliosDuplicadosEnOrigen.length} (ver bitácora)`);
+    }
     
   } catch (error) {
     console.error('Error en sincronización por rango:', error);
@@ -1052,7 +1120,8 @@ function procesarRegistroPorMetodo(
   
   // Detectar si el folio existe en otra hoja (cambio de método de pago)
   const existeEnOtraHoja = detectarExistenciaEnOtraHoja(
-    metodoPago, folio, existeEnTransferencias, existeEnTarjetas, existeEnEfectivo, existeEnOtros
+    metodoPago, folio, existeEnTransferencias, existeEnTarjetas, existeEnEfectivo, existeEnOtros,
+    foliosTransferencias, foliosTarjetas, foliosEfectivo, foliosOtros
   );
   
   if (existeEnOtraHoja) {
@@ -1144,35 +1213,53 @@ function procesarRegistroPorMetodo(
 
 /**
  * Detecta si un folio existe en una hoja diferente a la que debería estar
+ * @param {string} metodoPago - Método de pago actual del registro
+ * @param {string} folio - Folio a buscar
+ * @param {object} existeEnTransferencias - Datos del folio en transferencias (o undefined)
+ * @param {object} existeEnTarjetas - Datos del folio en tarjetas (o undefined)
+ * @param {object} existeEnEfectivo - Datos del folio en efectivo (o undefined)
+ * @param {object} existeEnOtros - Datos del folio en otros (o undefined)
+ * @param {Map} foliosTransferencias - Mapa de folios de transferencias
+ * @param {Map} foliosTarjetas - Mapa de folios de tarjetas
+ * @param {Map} foliosEfectivo - Mapa de folios de efectivo
+ * @param {Map} foliosOtros - Mapa de folios de otros
+ * @return {object|null} Objeto con información de la hoja origen o null si no existe en otra hoja
  */
-function detectarExistenciaEnOtraHoja(metodoPago, folio, existeEnTransferencias, existeEnTarjetas, existeEnEfectivo, existeEnOtros) {
+function detectarExistenciaEnOtraHoja(metodoPago, folio, existeEnTransferencias, existeEnTarjetas, existeEnEfectivo, existeEnOtros, foliosTransferencias, foliosTarjetas, foliosEfectivo, foliosOtros) {
   if (metodoPago !== 'TRANSFERENCIA' && existeEnTransferencias && existeEnTransferencias.rowIndex > 0) {
-    return { hojaOrigen: 'TRANSFERENCIA', rowIndex: existeEnTransferencias.rowIndex, mapa: null };
+    return { hojaOrigen: 'TRANSFERENCIA', rowIndex: existeEnTransferencias.rowIndex, mapa: foliosTransferencias };
   }
   if (metodoPago !== 'TARJETA' && existeEnTarjetas && existeEnTarjetas.rowIndex > 0) {
-    return { hojaOrigen: 'TARJETA', rowIndex: existeEnTarjetas.rowIndex, mapa: null };
+    return { hojaOrigen: 'TARJETA', rowIndex: existeEnTarjetas.rowIndex, mapa: foliosTarjetas };
   }
   if (metodoPago !== 'EFECTIVO' && existeEnEfectivo && existeEnEfectivo.rowIndex > 0) {
-    return { hojaOrigen: 'EFECTIVO', rowIndex: existeEnEfectivo.rowIndex, mapa: null };
+    return { hojaOrigen: 'EFECTIVO', rowIndex: existeEnEfectivo.rowIndex, mapa: foliosEfectivo };
   }
   if (metodoPago !== 'OTROS' && existeEnOtros && existeEnOtros.rowIndex > 0) {
-    return { hojaOrigen: 'OTROS', rowIndex: existeEnOtros.rowIndex, mapa: null };
+    return { hojaOrigen: 'OTROS', rowIndex: existeEnOtros.rowIndex, mapa: foliosOtros };
   }
   return null;
 }
 
 /**
  * Detecta eliminaciones: folios que existían en destino pero ya no están en origen
+ * NOTA: Este método solo DETECTA y REGISTRA eliminaciones, NO las ejecuta automáticamente.
+ * Esto es intencional para prevenir pérdida accidental de datos.
+ * 
  * @param {Map} mapaFolios - Mapa de folios existentes en destino
  * @param {Set} foliosEncontrados - Set de folios encontrados en origen
  * @param {Date} fechaInicio - Fecha inicio del rango de búsqueda
  * @param {Date} fechaFin - Fecha fin del rango de búsqueda
- * @param {string} tipo - 'TRANSFERENCIA' o 'TARJETA'
+ * @param {string} tipo - 'TRANSFERENCIA', 'TARJETA', 'EFECTIVO' o 'OTROS'
  * @param {Sheet} hojaBitacora - Hoja de bitácora
+ * @param {Set} foliosMovidosAOtraHoja - Set opcional de folios que fueron movidos a otra hoja
  * @return {number} Cantidad de eliminaciones detectadas
  */
-function detectarEliminaciones(mapaFolios, foliosEncontrados, fechaInicio, fechaFin, tipo, hojaBitacora) {
+function detectarEliminaciones(mapaFolios, foliosEncontrados, fechaInicio, fechaFin, tipo, hojaBitacora, foliosMovidosAOtraHoja) {
   let eliminaciones = 0;
+  
+  // Usar Set vacío si no se proporciona
+  const movidos = foliosMovidosAOtraHoja || new Set();
   
   for (const [folio, datos] of mapaFolios) {
     // Solo considerar folios que existían antes de esta ejecución (rowIndex > 0)
@@ -1185,13 +1272,13 @@ function detectarEliminaciones(mapaFolios, foliosEncontrados, fechaInicio, fecha
     const fechaFolioSolo = new Date(fechaFolio.getFullYear(), fechaFolio.getMonth(), fechaFolio.getDate());
     if (fechaFolioSolo < fechaInicio || fechaFolioSolo > fechaFin) continue;
     
-    // Si el folio no fue encontrado en origen, es una eliminación
-    if (!foliosEncontrados.has(folio)) {
+    // Si el folio no fue encontrado en origen y no fue movido a otra hoja
+    if (!foliosEncontrados.has(folio) && !movidos.has(folio)) {
       registrarEnBitacora(hojaBitacora, folio,
         'ELIMINACIÓN DETECTADA',
         `Folio en ${tipo} ya no existe en origen`,
         `Fecha: ${formatearFecha(fechaFolio)}; Cliente: ${datos.cliente || ''}; Monto: ${datos.monto || 0}`,
-        'El folio fue eliminado o cambió de método de pago en el archivo origen'
+        'El folio fue eliminado o cambió de método de pago en el archivo origen. Verificar manualmente.'
       );
       
       console.log(`🗑️ Eliminación detectada: Folio ${folio} (${tipo})`);
@@ -1648,204 +1735,341 @@ function procesarMovimientosEntreHojas(movimientos, hojaTransferencias, hojaTarj
 }
 
 /**
- * Inserta nuevos registros de transferencias
+ * Inserta nuevos registros de transferencias con manejo de errores
+ * @return {object} {insertados: number, errores: number, detallesErrores: Array}
  */
 function insertarNuevosTransferencias(registros, hoja) {
-  if (registros.length === 0) return;
+  if (registros.length === 0) return { insertados: 0, errores: 0, detallesErrores: [] };
   
-  const ultimaFila = hoja.getLastRow();
-  const datos = registros.map(r => [r.fecha, r.folio, r.cliente, r.servicio, r.banco, r.monto]);
+  let insertados = 0;
+  const detallesErrores = [];
   
-  hoja.getRange(ultimaFila + 1, 1, datos.length, 6).setValues(datos);
-  hoja.getRange(ultimaFila + 1, 1, datos.length, 1).setNumberFormat('d/M/yyyy');
-  hoja.getRange(ultimaFila + 1, 6, datos.length, 1).setNumberFormat('$#,##0.00');
+  try {
+    const ultimaFila = hoja.getLastRow();
+    const datos = registros.map(r => [r.fecha, r.folio, r.cliente, r.servicio, r.banco, r.monto]);
+    
+    hoja.getRange(ultimaFila + 1, 1, datos.length, 6).setValues(datos);
+    hoja.getRange(ultimaFila + 1, 1, datos.length, 1).setNumberFormat('d/M/yyyy');
+    hoja.getRange(ultimaFila + 1, 6, datos.length, 1).setNumberFormat('$#,##0.00');
+    
+    // Aplicar hipervínculos a los folios (columna B = 2)
+    const folios = registros.map(r => r.folio);
+    aplicarHipervínculosFolios(hoja, ultimaFila + 1, 2, folios);
+    
+    insertados = registros.length;
+    console.log(`${registros.length} nuevas transferencias insertadas`);
+  } catch (e) {
+    console.error(`Error insertando transferencias en bloque: ${e.message}`);
+    // Intentar insertar uno por uno para recuperar lo posible
+    for (const reg of registros) {
+      try {
+        const fila = hoja.getLastRow() + 1;
+        hoja.getRange(fila, 1, 1, 6).setValues([[reg.fecha, reg.folio, reg.cliente, reg.servicio, reg.banco, reg.monto]]);
+        hoja.getRange(fila, 1).setNumberFormat('d/M/yyyy');
+        hoja.getRange(fila, 6).setNumberFormat('$#,##0.00');
+        insertados++;
+      } catch (e2) {
+        detallesErrores.push({ folio: reg.folio, error: e2.message });
+        console.error(`Error insertando folio ${reg.folio}: ${e2.message}`);
+      }
+    }
+  }
   
-  // Aplicar hipervínculos a los folios (columna B = 2)
-  const folios = registros.map(r => r.folio);
-  aplicarHipervínculosFolios(hoja, ultimaFila + 1, 2, folios);
-  
-  console.log(`${registros.length} nuevas transferencias insertadas`);
+  return { insertados, errores: detallesErrores.length, detallesErrores };
 }
 
 /**
- * Inserta nuevos registros de tarjetas
+ * Inserta nuevos registros de tarjetas con manejo de errores
+ * @return {object} {insertados: number, errores: number, detallesErrores: Array}
  */
 function insertarNuevosTarjetas(registros, hoja) {
-  if (registros.length === 0) return;
+  if (registros.length === 0) return { insertados: 0, errores: 0, detallesErrores: [] };
   
-  const ultimaFila = hoja.getLastRow();
-  const datos = registros.map(r => [r.fecha, r.folio, r.cliente, r.servicio, r.monto]);
+  let insertados = 0;
+  const detallesErrores = [];
   
-  hoja.getRange(ultimaFila + 1, 1, datos.length, 5).setValues(datos);
-  hoja.getRange(ultimaFila + 1, 1, datos.length, 1).setNumberFormat('d/M/yyyy');
-  hoja.getRange(ultimaFila + 1, 5, datos.length, 1).setNumberFormat('$#,##0.00');
+  try {
+    const ultimaFila = hoja.getLastRow();
+    const datos = registros.map(r => [r.fecha, r.folio, r.cliente, r.servicio, r.monto]);
+    
+    hoja.getRange(ultimaFila + 1, 1, datos.length, 5).setValues(datos);
+    hoja.getRange(ultimaFila + 1, 1, datos.length, 1).setNumberFormat('d/M/yyyy');
+    hoja.getRange(ultimaFila + 1, 5, datos.length, 1).setNumberFormat('$#,##0.00');
+    
+    // Aplicar hipervínculos a los folios (columna B = 2)
+    const folios = registros.map(r => r.folio);
+    aplicarHipervínculosFolios(hoja, ultimaFila + 1, 2, folios);
+    
+    insertados = registros.length;
+    console.log(`${registros.length} nuevas tarjetas insertadas`);
+  } catch (e) {
+    console.error(`Error insertando tarjetas en bloque: ${e.message}`);
+    for (const reg of registros) {
+      try {
+        const fila = hoja.getLastRow() + 1;
+        hoja.getRange(fila, 1, 1, 5).setValues([[reg.fecha, reg.folio, reg.cliente, reg.servicio, reg.monto]]);
+        hoja.getRange(fila, 1).setNumberFormat('d/M/yyyy');
+        hoja.getRange(fila, 5).setNumberFormat('$#,##0.00');
+        insertados++;
+      } catch (e2) {
+        detallesErrores.push({ folio: reg.folio, error: e2.message });
+        console.error(`Error insertando folio ${reg.folio}: ${e2.message}`);
+      }
+    }
+  }
   
-  // Aplicar hipervínculos a los folios (columna B = 2)
-  const folios = registros.map(r => r.folio);
-  aplicarHipervínculosFolios(hoja, ultimaFila + 1, 2, folios);
-  
-  console.log(`${registros.length} nuevas tarjetas insertadas`);
+  return { insertados, errores: detallesErrores.length, detallesErrores };
 }
 
 /**
- * Actualiza registros existentes de transferencias
+ * Actualiza registros existentes de transferencias con manejo de errores
+ * @return {object} {actualizados: number, errores: number, detallesErrores: Array}
  */
 function actualizarTransferencias(registros, hoja, hojaBitacora) {
-  if (registros.length === 0) return;
+  if (registros.length === 0) return { actualizados: 0, errores: 0, detallesErrores: [] };
+  
+  let actualizados = 0;
+  const detallesErrores = [];
   
   for (const reg of registros) {
-    // Actualizar solo columnas A-F (no tocar G-I zona protegida)
-    hoja.getRange(reg.rowIndex, 1).setValue(reg.fecha);
-    hoja.getRange(reg.rowIndex, 1).setNumberFormat('d/M/yyyy');
-    hoja.getRange(reg.rowIndex, 2).setValue(reg.folio);
-    hoja.getRange(reg.rowIndex, 3).setValue(reg.cliente);
-    hoja.getRange(reg.rowIndex, 4).setValue(reg.servicio);
-    hoja.getRange(reg.rowIndex, 5).setValue(reg.banco);
-    hoja.getRange(reg.rowIndex, 6).setValue(reg.monto);
-    hoja.getRange(reg.rowIndex, 6).setNumberFormat('$#,##0.00');
-    
-    // Registrar en bitácora
-    const cambiosTexto = construirTextoCambios(reg.cambios, 'TRANSFERENCIA');
-    if (cambiosTexto) {
-      registrarEnBitacora(hojaBitacora, reg.folio,
-        'ACTUALIZACIÓN',
-        cambiosTexto.descripcion,
-        cambiosTexto.anterior,
-        cambiosTexto.nuevo
-      );
+    try {
+      // Actualizar solo columnas A-F (no tocar G-I zona protegida)
+      hoja.getRange(reg.rowIndex, 1).setValue(reg.fecha);
+      hoja.getRange(reg.rowIndex, 1).setNumberFormat('d/M/yyyy');
+      hoja.getRange(reg.rowIndex, 2).setValue(reg.folio);
+      hoja.getRange(reg.rowIndex, 3).setValue(reg.cliente);
+      hoja.getRange(reg.rowIndex, 4).setValue(reg.servicio);
+      hoja.getRange(reg.rowIndex, 5).setValue(reg.banco);
+      hoja.getRange(reg.rowIndex, 6).setValue(reg.monto);
+      hoja.getRange(reg.rowIndex, 6).setNumberFormat('$#,##0.00');
+      
+      // Registrar en bitácora
+      const cambiosTexto = construirTextoCambios(reg.cambios, 'TRANSFERENCIA');
+      if (cambiosTexto) {
+        registrarEnBitacora(hojaBitacora, reg.folio,
+          'ACTUALIZACIÓN',
+          cambiosTexto.descripcion,
+          cambiosTexto.anterior,
+          cambiosTexto.nuevo
+        );
+      }
+      actualizados++;
+    } catch (e) {
+      detallesErrores.push({ folio: reg.folio, rowIndex: reg.rowIndex, error: e.message });
+      console.error(`Error actualizando folio ${reg.folio} en fila ${reg.rowIndex}: ${e.message}`);
     }
   }
   
-  console.log(`${registros.length} transferencias actualizadas`);
+  console.log(`${actualizados} transferencias actualizadas`);
+  return { actualizados, errores: detallesErrores.length, detallesErrores };
 }
 
 /**
- * Actualiza registros existentes de tarjetas
+ * Actualiza registros existentes de tarjetas con manejo de errores
+ * @return {object} {actualizados: number, errores: number, detallesErrores: Array}
  */
 function actualizarTarjetas(registros, hoja, hojaBitacora) {
-  if (registros.length === 0) return;
+  if (registros.length === 0) return { actualizados: 0, errores: 0, detallesErrores: [] };
+  
+  let actualizados = 0;
+  const detallesErrores = [];
   
   for (const reg of registros) {
-    // Actualizar solo columnas A-E (no tocar F-I zona protegida)
-    hoja.getRange(reg.rowIndex, 1).setValue(reg.fecha);
-    hoja.getRange(reg.rowIndex, 1).setNumberFormat('d/M/yyyy');
-    hoja.getRange(reg.rowIndex, 2).setValue(reg.folio);
-    hoja.getRange(reg.rowIndex, 3).setValue(reg.cliente);
-    hoja.getRange(reg.rowIndex, 4).setValue(reg.servicio);
-    hoja.getRange(reg.rowIndex, 5).setValue(reg.monto);
-    hoja.getRange(reg.rowIndex, 5).setNumberFormat('$#,##0.00');
-    
-    // Registrar en bitácora
-    const cambiosTexto = construirTextoCambios(reg.cambios, 'TARJETA');
-    if (cambiosTexto) {
-      registrarEnBitacora(hojaBitacora, reg.folio,
-        'ACTUALIZACIÓN',
-        cambiosTexto.descripcion,
-        cambiosTexto.anterior,
-        cambiosTexto.nuevo
-      );
+    try {
+      // Actualizar solo columnas A-E (no tocar F-I zona protegida)
+      hoja.getRange(reg.rowIndex, 1).setValue(reg.fecha);
+      hoja.getRange(reg.rowIndex, 1).setNumberFormat('d/M/yyyy');
+      hoja.getRange(reg.rowIndex, 2).setValue(reg.folio);
+      hoja.getRange(reg.rowIndex, 3).setValue(reg.cliente);
+      hoja.getRange(reg.rowIndex, 4).setValue(reg.servicio);
+      hoja.getRange(reg.rowIndex, 5).setValue(reg.monto);
+      hoja.getRange(reg.rowIndex, 5).setNumberFormat('$#,##0.00');
+      
+      // Registrar en bitácora
+      const cambiosTexto = construirTextoCambios(reg.cambios, 'TARJETA');
+      if (cambiosTexto) {
+        registrarEnBitacora(hojaBitacora, reg.folio,
+          'ACTUALIZACIÓN',
+          cambiosTexto.descripcion,
+          cambiosTexto.anterior,
+          cambiosTexto.nuevo
+        );
+      }
+      actualizados++;
+    } catch (e) {
+      detallesErrores.push({ folio: reg.folio, rowIndex: reg.rowIndex, error: e.message });
+      console.error(`Error actualizando folio ${reg.folio} en fila ${reg.rowIndex}: ${e.message}`);
     }
   }
   
-  console.log(`${registros.length} tarjetas actualizadas`);
+  console.log(`${actualizados} tarjetas actualizadas`);
+  return { actualizados, errores: detallesErrores.length, detallesErrores };
 }
 
 /**
- * Inserta nuevos registros de efectivo
+ * Inserta nuevos registros de efectivo con manejo de errores
+ * @return {object} {insertados: number, errores: number, detallesErrores: Array}
  */
 function insertarNuevosEfectivo(registros, hoja) {
-  if (registros.length === 0) return;
+  if (registros.length === 0) return { insertados: 0, errores: 0, detallesErrores: [] };
   
-  const ultimaFila = hoja.getLastRow();
-  const datos = registros.map(r => [r.fecha, r.folio, r.cliente, r.servicio, r.monto]);
+  let insertados = 0;
+  const detallesErrores = [];
   
-  hoja.getRange(ultimaFila + 1, 1, datos.length, 5).setValues(datos);
-  hoja.getRange(ultimaFila + 1, 1, datos.length, 1).setNumberFormat('d/M/yyyy');
-  hoja.getRange(ultimaFila + 1, 5, datos.length, 1).setNumberFormat('$#,##0.00');
+  try {
+    const ultimaFila = hoja.getLastRow();
+    const datos = registros.map(r => [r.fecha, r.folio, r.cliente, r.servicio, r.monto]);
+    
+    hoja.getRange(ultimaFila + 1, 1, datos.length, 5).setValues(datos);
+    hoja.getRange(ultimaFila + 1, 1, datos.length, 1).setNumberFormat('d/M/yyyy');
+    hoja.getRange(ultimaFila + 1, 5, datos.length, 1).setNumberFormat('$#,##0.00');
+    
+    const folios = registros.map(r => r.folio);
+    aplicarHipervínculosFolios(hoja, ultimaFila + 1, 2, folios);
+    
+    insertados = registros.length;
+    console.log(`${registros.length} nuevos efectivo insertados`);
+  } catch (e) {
+    console.error(`Error insertando efectivo en bloque: ${e.message}`);
+    for (const reg of registros) {
+      try {
+        const fila = hoja.getLastRow() + 1;
+        hoja.getRange(fila, 1, 1, 5).setValues([[reg.fecha, reg.folio, reg.cliente, reg.servicio, reg.monto]]);
+        hoja.getRange(fila, 1).setNumberFormat('d/M/yyyy');
+        hoja.getRange(fila, 5).setNumberFormat('$#,##0.00');
+        insertados++;
+      } catch (e2) {
+        detallesErrores.push({ folio: reg.folio, error: e2.message });
+        console.error(`Error insertando folio ${reg.folio}: ${e2.message}`);
+      }
+    }
+  }
   
-  const folios = registros.map(r => r.folio);
-  aplicarHipervínculosFolios(hoja, ultimaFila + 1, 2, folios);
-  
-  console.log(`${registros.length} nuevos efectivo insertados`);
+  return { insertados, errores: detallesErrores.length, detallesErrores };
 }
 
 /**
- * Inserta nuevos registros de otros métodos de pago
+ * Inserta nuevos registros de otros métodos de pago con manejo de errores
+ * @return {object} {insertados: number, errores: number, detallesErrores: Array}
  */
 function insertarNuevosOtros(registros, hoja) {
-  if (registros.length === 0) return;
+  if (registros.length === 0) return { insertados: 0, errores: 0, detallesErrores: [] };
   
-  const ultimaFila = hoja.getLastRow();
-  // Incluye método de pago en columna F
-  const datos = registros.map(r => [r.fecha, r.folio, r.cliente, r.servicio, r.monto, r.metodoPagoRaw || '(vacío)']);
+  let insertados = 0;
+  const detallesErrores = [];
   
-  hoja.getRange(ultimaFila + 1, 1, datos.length, 6).setValues(datos);
-  hoja.getRange(ultimaFila + 1, 1, datos.length, 1).setNumberFormat('d/M/yyyy');
-  hoja.getRange(ultimaFila + 1, 5, datos.length, 1).setNumberFormat('$#,##0.00');
+  try {
+    const ultimaFila = hoja.getLastRow();
+    // Incluye método de pago en columna F
+    const datos = registros.map(r => [r.fecha, r.folio, r.cliente, r.servicio, r.monto, r.metodoPagoRaw || '(vacío)']);
+    
+    hoja.getRange(ultimaFila + 1, 1, datos.length, 6).setValues(datos);
+    hoja.getRange(ultimaFila + 1, 1, datos.length, 1).setNumberFormat('d/M/yyyy');
+    hoja.getRange(ultimaFila + 1, 5, datos.length, 1).setNumberFormat('$#,##0.00');
+    
+    const folios = registros.map(r => r.folio);
+    aplicarHipervínculosFolios(hoja, ultimaFila + 1, 2, folios);
+    
+    insertados = registros.length;
+    console.log(`${registros.length} nuevos otros insertados`);
+  } catch (e) {
+    console.error(`Error insertando otros en bloque: ${e.message}`);
+    for (const reg of registros) {
+      try {
+        const fila = hoja.getLastRow() + 1;
+        hoja.getRange(fila, 1, 1, 6).setValues([[reg.fecha, reg.folio, reg.cliente, reg.servicio, reg.monto, reg.metodoPagoRaw || '(vacío)']]);
+        hoja.getRange(fila, 1).setNumberFormat('d/M/yyyy');
+        hoja.getRange(fila, 5).setNumberFormat('$#,##0.00');
+        insertados++;
+      } catch (e2) {
+        detallesErrores.push({ folio: reg.folio, error: e2.message });
+        console.error(`Error insertando folio ${reg.folio}: ${e2.message}`);
+      }
+    }
+  }
   
-  const folios = registros.map(r => r.folio);
-  aplicarHipervínculosFolios(hoja, ultimaFila + 1, 2, folios);
-  
-  console.log(`${registros.length} nuevos otros insertados`);
+  return { insertados, errores: detallesErrores.length, detallesErrores };
 }
 
 /**
- * Actualiza registros existentes de efectivo
+ * Actualiza registros existentes de efectivo con manejo de errores
+ * @return {object} {actualizados: number, errores: number, detallesErrores: Array}
  */
 function actualizarEfectivo(registros, hoja, hojaBitacora) {
-  if (registros.length === 0) return;
+  if (registros.length === 0) return { actualizados: 0, errores: 0, detallesErrores: [] };
+  
+  let actualizados = 0;
+  const detallesErrores = [];
   
   for (const reg of registros) {
-    hoja.getRange(reg.rowIndex, 1).setValue(reg.fecha);
-    hoja.getRange(reg.rowIndex, 1).setNumberFormat('d/M/yyyy');
-    hoja.getRange(reg.rowIndex, 2).setValue(reg.folio);
-    hoja.getRange(reg.rowIndex, 3).setValue(reg.cliente);
-    hoja.getRange(reg.rowIndex, 4).setValue(reg.servicio);
-    hoja.getRange(reg.rowIndex, 5).setValue(reg.monto);
-    hoja.getRange(reg.rowIndex, 5).setNumberFormat('$#,##0.00');
-    
-    const cambiosTexto = construirTextoCambios(reg.cambios, 'EFECTIVO');
-    if (cambiosTexto) {
-      registrarEnBitacora(hojaBitacora, reg.folio,
-        'ACTUALIZACIÓN',
-        cambiosTexto.descripcion,
-        cambiosTexto.anterior,
-        cambiosTexto.nuevo
-      );
+    try {
+      hoja.getRange(reg.rowIndex, 1).setValue(reg.fecha);
+      hoja.getRange(reg.rowIndex, 1).setNumberFormat('d/M/yyyy');
+      hoja.getRange(reg.rowIndex, 2).setValue(reg.folio);
+      hoja.getRange(reg.rowIndex, 3).setValue(reg.cliente);
+      hoja.getRange(reg.rowIndex, 4).setValue(reg.servicio);
+      hoja.getRange(reg.rowIndex, 5).setValue(reg.monto);
+      hoja.getRange(reg.rowIndex, 5).setNumberFormat('$#,##0.00');
+      
+      const cambiosTexto = construirTextoCambios(reg.cambios, 'EFECTIVO');
+      if (cambiosTexto) {
+        registrarEnBitacora(hojaBitacora, reg.folio,
+          'ACTUALIZACIÓN',
+          cambiosTexto.descripcion,
+          cambiosTexto.anterior,
+          cambiosTexto.nuevo
+        );
+      }
+      actualizados++;
+    } catch (e) {
+      detallesErrores.push({ folio: reg.folio, rowIndex: reg.rowIndex, error: e.message });
+      console.error(`Error actualizando folio ${reg.folio} en fila ${reg.rowIndex}: ${e.message}`);
     }
   }
   
-  console.log(`${registros.length} efectivo actualizados`);
+  console.log(`${actualizados} efectivo actualizados`);
+  return { actualizados, errores: detallesErrores.length, detallesErrores };
 }
 
 /**
- * Actualiza registros existentes de otros métodos de pago
+ * Actualiza registros existentes de otros métodos de pago con manejo de errores
+ * @return {object} {actualizados: number, errores: number, detallesErrores: Array}
  */
 function actualizarOtros(registros, hoja, hojaBitacora) {
-  if (registros.length === 0) return;
+  if (registros.length === 0) return { actualizados: 0, errores: 0, detallesErrores: [] };
+  
+  let actualizados = 0;
+  const detallesErrores = [];
   
   for (const reg of registros) {
-    hoja.getRange(reg.rowIndex, 1).setValue(reg.fecha);
-    hoja.getRange(reg.rowIndex, 1).setNumberFormat('d/M/yyyy');
-    hoja.getRange(reg.rowIndex, 2).setValue(reg.folio);
-    hoja.getRange(reg.rowIndex, 3).setValue(reg.cliente);
-    hoja.getRange(reg.rowIndex, 4).setValue(reg.servicio);
-    hoja.getRange(reg.rowIndex, 5).setValue(reg.monto);
-    hoja.getRange(reg.rowIndex, 5).setNumberFormat('$#,##0.00');
-    hoja.getRange(reg.rowIndex, 6).setValue(reg.metodoPagoRaw || '(vacío)');
-    
-    const cambiosTexto = construirTextoCambios(reg.cambios, 'OTROS');
-    if (cambiosTexto) {
-      registrarEnBitacora(hojaBitacora, reg.folio,
-        'ACTUALIZACIÓN',
-        cambiosTexto.descripcion,
-        cambiosTexto.anterior,
-        cambiosTexto.nuevo
-      );
+    try {
+      hoja.getRange(reg.rowIndex, 1).setValue(reg.fecha);
+      hoja.getRange(reg.rowIndex, 1).setNumberFormat('d/M/yyyy');
+      hoja.getRange(reg.rowIndex, 2).setValue(reg.folio);
+      hoja.getRange(reg.rowIndex, 3).setValue(reg.cliente);
+      hoja.getRange(reg.rowIndex, 4).setValue(reg.servicio);
+      hoja.getRange(reg.rowIndex, 5).setValue(reg.monto);
+      hoja.getRange(reg.rowIndex, 5).setNumberFormat('$#,##0.00');
+      hoja.getRange(reg.rowIndex, 6).setValue(reg.metodoPagoRaw || '(vacío)');
+      
+      const cambiosTexto = construirTextoCambios(reg.cambios, 'OTROS');
+      if (cambiosTexto) {
+        registrarEnBitacora(hojaBitacora, reg.folio,
+          'ACTUALIZACIÓN',
+          cambiosTexto.descripcion,
+          cambiosTexto.anterior,
+          cambiosTexto.nuevo
+        );
+      }
+      actualizados++;
+    } catch (e) {
+      detallesErrores.push({ folio: reg.folio, rowIndex: reg.rowIndex, error: e.message });
+      console.error(`Error actualizando folio ${reg.folio} en fila ${reg.rowIndex}: ${e.message}`);
     }
   }
   
-  console.log(`${registros.length} otros actualizados`);
+  console.log(`${actualizados} otros actualizados`);
+  return { actualizados, errores: detallesErrores.length, detallesErrores };
 }
 
 /**
