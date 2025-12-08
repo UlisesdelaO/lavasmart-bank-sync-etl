@@ -24,6 +24,8 @@ const DIAS_LOOKBACK = 10; // Aumentado de 5 a 10 para cubrir fines de semana lar
 // Nombres de hojas
 const NOMBRE_HOJA_TRANSFERENCIAS = 'Conciliacion_Transferencias';
 const NOMBRE_HOJA_TARJETAS = 'Conciliacion_Tarjetas';
+const NOMBRE_HOJA_EFECTIVO = 'Conciliacion_Efectivo';
+const NOMBRE_HOJA_OTROS = 'Conciliacion_Otros';
 const NOMBRE_HOJA_CIERRES = 'Cierres_Lotes';
 const NOMBRE_HOJA_BITACORA = '📝 Bitácora_Cambios';
 const NOMBRE_HOJA_REVISION = '⚠️ Revisión_Pendiente';
@@ -393,6 +395,77 @@ function obtenerOCrearHojaTarjetas(ss) {
 }
 
 /**
+ * Obtiene o crea la hoja de Efectivo
+ */
+function obtenerOCrearHojaEfectivo(ss) {
+  let hoja = ss.getSheetByName(NOMBRE_HOJA_EFECTIVO);
+  
+  if (!hoja) {
+    console.log(`Creando hoja "${NOMBRE_HOJA_EFECTIVO}"...`);
+    hoja = ss.insertSheet(NOMBRE_HOJA_EFECTIVO);
+    
+    // Encabezados para efectivo (7 columnas)
+    hoja.appendRow([
+      'Fecha',           // A - Script
+      'Folio',           // B - Script
+      'Cliente',         // C - Script
+      'Servicio (s)',    // D - Script
+      'Monto',           // E - Script
+      '✅ Verificado',    // F - Manual (checkbox)
+      '🔍 Observaciones'  // G - Manual
+    ]);
+    
+    // Formatear encabezados
+    const headerRange = hoja.getRange(1, 1, 1, 7);
+    headerRange.setFontWeight('bold');
+    headerRange.setBackground('#f0f0f0');
+    
+    // Zona protegida (F, G)
+    hoja.getRange(1, 6, 1, 2).setBackground('#d9ead3'); // Verde claro para efectivo
+    
+    console.log(`Hoja "${NOMBRE_HOJA_EFECTIVO}" creada`);
+  }
+  
+  return hoja;
+}
+
+/**
+ * Obtiene o crea la hoja de Otros métodos de pago
+ */
+function obtenerOCrearHojaOtros(ss) {
+  let hoja = ss.getSheetByName(NOMBRE_HOJA_OTROS);
+  
+  if (!hoja) {
+    console.log(`Creando hoja "${NOMBRE_HOJA_OTROS}"...`);
+    hoja = ss.insertSheet(NOMBRE_HOJA_OTROS);
+    
+    // Encabezados para otros (8 columnas)
+    hoja.appendRow([
+      'Fecha',           // A - Script
+      'Folio',           // B - Script
+      'Cliente',         // C - Script
+      'Servicio (s)',    // D - Script
+      'Monto',           // E - Script
+      'Método Pago',     // F - Script (el método detectado)
+      '✅ Verificado',    // G - Manual (checkbox)
+      '🔍 Observaciones'  // H - Manual
+    ]);
+    
+    // Formatear encabezados
+    const headerRange = hoja.getRange(1, 1, 1, 8);
+    headerRange.setFontWeight('bold');
+    headerRange.setBackground('#f0f0f0');
+    
+    // Zona protegida (G, H)
+    hoja.getRange(1, 7, 1, 2).setBackground('#f4cccc'); // Rojo claro para "otros"
+    
+    console.log(`Hoja "${NOMBRE_HOJA_OTROS}" creada`);
+  }
+  
+  return hoja;
+}
+
+/**
  * Obtiene o crea la hoja de Cierres de Lotes
  */
 function obtenerOCrearHojaCierres(ss) {
@@ -580,6 +653,8 @@ function sincronizarConciliacion() {
     // Obtener o crear todas las hojas necesarias
     const hojaTransferencias = obtenerOCrearHojaTransferencias(ssDestino);
     const hojaTarjetas = obtenerOCrearHojaTarjetas(ssDestino);
+    const hojaEfectivo = obtenerOCrearHojaEfectivo(ssDestino);
+    const hojaOtros = obtenerOCrearHojaOtros(ssDestino);
     obtenerOCrearHojaCierres(ssDestino); // Solo crear si no existe
     
     const ssOrigen = SpreadsheetApp.openById(ID_ARCHIVO_ORIGEN);
@@ -595,20 +670,28 @@ function sincronizarConciliacion() {
     
     console.log(`Buscando registros desde: ${formatearFecha(fechaInicio)} hasta: ${formatearFecha(hoy)}`);
     
-    // Construir mapas de folios existentes en ambas hojas
+    // Construir mapas de folios existentes en todas las hojas
     const foliosTransferencias = construirMapaFolios(hojaTransferencias, 'TRANSFERENCIA');
     const foliosTarjetas = construirMapaFolios(hojaTarjetas, 'TARJETA');
+    const foliosEfectivo = construirMapaFolios(hojaEfectivo, 'EFECTIVO');
+    const foliosOtros = construirMapaFolios(hojaOtros, 'OTROS');
     
     // Arrays para acumular registros
     const nuevosTransferencias = [];
     const nuevosTarjetas = [];
+    const nuevosEfectivo = [];
+    const nuevosOtros = [];
     const actualizadosTransferencias = [];
     const actualizadosTarjetas = [];
+    const actualizadosEfectivo = [];
+    const actualizadosOtros = [];
     const movimientosEntreHojas = []; // Para cambios de método de pago
     
     // Sets para rastrear folios encontrados en origen (para detectar eliminaciones)
     const foliosEncontradosTransferencias = new Set();
     const foliosEncontradosTarjetas = new Set();
+    const foliosEncontradosEfectivo = new Set();
+    const foliosEncontradosOtros = new Set();
     
     // Procesar cada día del rango
     for (let d = 0; d <= DIAS_LOOKBACK; d++) {
@@ -632,13 +715,19 @@ function sincronizarConciliacion() {
         const fila = datosOrigen[i];
         
         // Determinar método de pago
-        const metodoPagoRaw = String(fila[COL_ORIGEN_METODO_PAGO] || '').toUpperCase();
-        const esTransferencia = metodoPagoRaw.includes('TRANSFERENCIA');
-        const esTarjeta = metodoPagoRaw.includes('TARJETA');
+        const metodoPagoRaw = String(fila[COL_ORIGEN_METODO_PAGO] || '').trim();
+        const metodoPagoUpper = metodoPagoRaw.toUpperCase();
         
-        if (!esTransferencia && !esTarjeta) continue;
-        
-        const metodoPago = esTransferencia ? 'TRANSFERENCIA' : 'TARJETA';
+        let metodoPago;
+        if (metodoPagoUpper.includes('TRANSFERENCIA')) {
+          metodoPago = 'TRANSFERENCIA';
+        } else if (metodoPagoUpper.includes('TARJETA')) {
+          metodoPago = 'TARJETA';
+        } else if (metodoPagoUpper.includes('EFECTIVO')) {
+          metodoPago = 'EFECTIVO';
+        } else {
+          metodoPago = 'OTROS'; // Incluye vacíos y cualquier otro método
+        }
         
         // Parsear fecha
         const fechaVenta = parsearFecha(fila[COL_ORIGEN_FECHA]);
@@ -656,97 +745,57 @@ function sincronizarConciliacion() {
         
         if (!folio) continue;
         
-        // Buscar en ambas hojas
+        // Buscar en todas las hojas
         const existeEnTransferencias = foliosTransferencias.get(folio);
         const existeEnTarjetas = foliosTarjetas.get(folio);
+        const existeEnEfectivo = foliosEfectivo.get(folio);
+        const existeEnOtros = foliosOtros.get(folio);
         
-        if (metodoPago === 'TRANSFERENCIA') {
-          foliosEncontradosTransferencias.add(folio); // Marcar como encontrado en origen
-          if (existeEnTarjetas && existeEnTarjetas.rowIndex > 0) {
-            // CAMBIÓ de Tarjeta a Transferencia - mover (solo si tiene rowIndex válido)
-            movimientosEntreHojas.push({
-              tipo: 'TARJETA_A_TRANSFERENCIA',
-              folio: folio,
-              rowIndexOrigen: existeEnTarjetas.rowIndex,
-              fecha: fechaVenta,
-              cliente: cliente,
-              servicio: servicio,
-              banco: banco,
-              monto: monto
-            });
-            foliosTarjetas.delete(folio);
-            foliosTransferencias.set(folio, { rowIndex: -1 }); // Marcar como procesado
-          } else if (existeEnTransferencias && existeEnTransferencias.rowIndex > 0) {
-            // Ya existe en transferencias con rowIndex válido - verificar cambios
-            const cambios = detectarCambios(existeEnTransferencias, {
-              fecha: fechaVenta, cliente, servicio, banco, monto
-            });
-            if (cambios.hayCambios) {
-              actualizadosTransferencias.push({
-                rowIndex: existeEnTransferencias.rowIndex,
-                folio, fecha: fechaVenta, cliente, servicio, banco, monto,
-                cambios: cambios
-              });
-            }
-          } else if (!existeEnTransferencias) {
-            // Nuevo registro
-            nuevosTransferencias.push({ fecha: fechaVenta, folio, cliente, servicio, banco, monto });
-            foliosTransferencias.set(folio, { rowIndex: -1 });
-          }
-        } else { // TARJETA
-          foliosEncontradosTarjetas.add(folio); // Marcar como encontrado en origen
-          if (existeEnTransferencias && existeEnTransferencias.rowIndex > 0) {
-            // CAMBIÓ de Transferencia a Tarjeta - mover (solo si tiene rowIndex válido)
-            movimientosEntreHojas.push({
-              tipo: 'TRANSFERENCIA_A_TARJETA',
-              folio: folio,
-              rowIndexOrigen: existeEnTransferencias.rowIndex,
-              fecha: fechaVenta,
-              cliente: cliente,
-              servicio: servicio,
-              monto: monto
-            });
-            foliosTransferencias.delete(folio);
-            foliosTarjetas.set(folio, { rowIndex: -1 }); // Marcar como procesado
-          } else if (existeEnTarjetas && existeEnTarjetas.rowIndex > 0) {
-            // Ya existe en tarjetas con rowIndex válido - verificar cambios
-            const cambios = detectarCambiosTarjetas(existeEnTarjetas, {
-              fecha: fechaVenta, cliente, servicio, monto
-            });
-            if (cambios.hayCambios) {
-              actualizadosTarjetas.push({
-                rowIndex: existeEnTarjetas.rowIndex,
-                folio, fecha: fechaVenta, cliente, servicio, monto,
-                cambios: cambios
-              });
-            }
-          } else if (!existeEnTarjetas) {
-            // Nuevo registro
-            nuevosTarjetas.push({ fecha: fechaVenta, folio, cliente, servicio, monto });
-            foliosTarjetas.set(folio, { rowIndex: -1 });
-          }
-        }
+        // Procesar según método de pago
+        procesarRegistroPorMetodo(
+          metodoPago, metodoPagoRaw, folio, fechaVenta, cliente, servicio, banco, monto,
+          existeEnTransferencias, existeEnTarjetas, existeEnEfectivo, existeEnOtros,
+          foliosTransferencias, foliosTarjetas, foliosEfectivo, foliosOtros,
+          foliosEncontradosTransferencias, foliosEncontradosTarjetas, foliosEncontradosEfectivo, foliosEncontradosOtros,
+          nuevosTransferencias, nuevosTarjetas, nuevosEfectivo, nuevosOtros,
+          actualizadosTransferencias, actualizadosTarjetas, actualizadosEfectivo, actualizadosOtros,
+          movimientosEntreHojas
+        );
       }
     }
     
     // Aplicar cambios a las hojas
     const hojaBitacora = obtenerOCrearBitacora(ssDestino);
     const hojaRevision = obtenerOCrearHojaRevision(ssDestino);
+    
+    // Mapa de hojas para procesamiento genérico
+    const hojas = {
+      TRANSFERENCIA: hojaTransferencias,
+      TARJETA: hojaTarjetas,
+      EFECTIVO: hojaEfectivo,
+      OTROS: hojaOtros
+    };
       
     // 1. Procesar movimientos entre hojas (cambios de método de pago)
-    procesarMovimientosEntreHojas(movimientosEntreHojas, hojaTransferencias, hojaTarjetas, hojaBitacora, hojaRevision);
+    procesarMovimientosEntreHojasGenerico(movimientosEntreHojas, hojas, hojaBitacora, hojaRevision);
     
     // 2. Insertar nuevos registros
     insertarNuevosTransferencias(nuevosTransferencias, hojaTransferencias);
     insertarNuevosTarjetas(nuevosTarjetas, hojaTarjetas);
+    insertarNuevosEfectivo(nuevosEfectivo, hojaEfectivo);
+    insertarNuevosOtros(nuevosOtros, hojaOtros);
     
     // 3. Actualizar registros existentes
     actualizarTransferencias(actualizadosTransferencias, hojaTransferencias, hojaBitacora);
     actualizarTarjetas(actualizadosTarjetas, hojaTarjetas, hojaBitacora);
+    actualizarEfectivo(actualizadosEfectivo, hojaEfectivo, hojaBitacora);
+    actualizarOtros(actualizadosOtros, hojaOtros, hojaBitacora);
     
     // 4. Actualizar hipervínculos faltantes (solo los que no tienen link)
     actualizarHipervínculosFaltantes(hojaTransferencias, 2);
     actualizarHipervínculosFaltantes(hojaTarjetas, 2);
+    actualizarHipervínculosFaltantes(hojaEfectivo, 2);
+    actualizarHipervínculosFaltantes(hojaOtros, 2);
     
     // 5. Detectar eliminaciones (folios en destino que ya no están en origen)
     const eliminacionesTransferencias = detectarEliminaciones(
@@ -755,11 +804,19 @@ function sincronizarConciliacion() {
     const eliminacionesTarjetas = detectarEliminaciones(
       foliosTarjetas, foliosEncontradosTarjetas, fechaInicio, hoy, 'TARJETA', hojaBitacora
     );
+    const eliminacionesEfectivo = detectarEliminaciones(
+      foliosEfectivo, foliosEncontradosEfectivo, fechaInicio, hoy, 'EFECTIVO', hojaBitacora
+    );
+    const eliminacionesOtros = detectarEliminaciones(
+      foliosOtros, foliosEncontradosOtros, fechaInicio, hoy, 'OTROS', hojaBitacora
+    );
     
     // Resumen
     console.log('=== Sincronización completada ===');
-    console.log(`Transferencias: ${nuevosTransferencias.length} nuevos, ${actualizadosTransferencias.length} actualizados, ${eliminacionesTransferencias} eliminaciones detectadas`);
-    console.log(`Tarjetas: ${nuevosTarjetas.length} nuevos, ${actualizadosTarjetas.length} actualizados, ${eliminacionesTarjetas} eliminaciones detectadas`);
+    console.log(`Transferencias: ${nuevosTransferencias.length} nuevos, ${actualizadosTransferencias.length} actualizados, ${eliminacionesTransferencias} eliminaciones`);
+    console.log(`Tarjetas: ${nuevosTarjetas.length} nuevos, ${actualizadosTarjetas.length} actualizados, ${eliminacionesTarjetas} eliminaciones`);
+    console.log(`Efectivo: ${nuevosEfectivo.length} nuevos, ${actualizadosEfectivo.length} actualizados, ${eliminacionesEfectivo} eliminaciones`);
+    console.log(`Otros: ${nuevosOtros.length} nuevos, ${actualizadosOtros.length} actualizados, ${eliminacionesOtros} eliminaciones`);
     console.log(`Movimientos entre hojas: ${movimientosEntreHojas.length}`);
     
   } catch (error) {
@@ -803,6 +860,8 @@ function sincronizarRango(fechaInicioStr, fechaFinStr) {
     const ssDestino = SpreadsheetApp.openById(ID_ARCHIVO_DESTINO);
     const hojaTransferencias = obtenerOCrearHojaTransferencias(ssDestino);
     const hojaTarjetas = obtenerOCrearHojaTarjetas(ssDestino);
+    const hojaEfectivo = obtenerOCrearHojaEfectivo(ssDestino);
+    const hojaOtros = obtenerOCrearHojaOtros(ssDestino);
     obtenerOCrearHojaCierres(ssDestino);
     
     const ssOrigen = SpreadsheetApp.openById(ID_ARCHIVO_ORIGEN);
@@ -813,17 +872,25 @@ function sincronizarRango(fechaInicioStr, fechaFinStr) {
     // Construir mapas de folios existentes
     const foliosTransferencias = construirMapaFolios(hojaTransferencias, 'TRANSFERENCIA');
     const foliosTarjetas = construirMapaFolios(hojaTarjetas, 'TARJETA');
+    const foliosEfectivo = construirMapaFolios(hojaEfectivo, 'EFECTIVO');
+    const foliosOtros = construirMapaFolios(hojaOtros, 'OTROS');
     
     // Arrays para acumular registros
     const nuevosTransferencias = [];
     const nuevosTarjetas = [];
+    const nuevosEfectivo = [];
+    const nuevosOtros = [];
     const actualizadosTransferencias = [];
     const actualizadosTarjetas = [];
+    const actualizadosEfectivo = [];
+    const actualizadosOtros = [];
     const movimientosEntreHojas = [];
     
     // Sets para rastrear folios encontrados en origen (para detectar eliminaciones)
     const foliosEncontradosTransferencias = new Set();
     const foliosEncontradosTarjetas = new Set();
+    const foliosEncontradosEfectivo = new Set();
+    const foliosEncontradosOtros = new Set();
     
     // Calcular número de días en el rango
     const diasEnRango = Math.ceil((fechaFin - fechaInicio) / (1000 * 60 * 60 * 24)) + 1;
@@ -851,13 +918,19 @@ function sincronizarRango(fechaInicioStr, fechaFinStr) {
         const fila = datosOrigen[i];
         
         // Determinar método de pago
-        const metodoPagoRaw = String(fila[COL_ORIGEN_METODO_PAGO] || '').toUpperCase();
-        const esTransferencia = metodoPagoRaw.includes('TRANSFERENCIA');
-        const esTarjeta = metodoPagoRaw.includes('TARJETA');
+        const metodoPagoRaw = String(fila[COL_ORIGEN_METODO_PAGO] || '').trim();
+        const metodoPagoUpper = metodoPagoRaw.toUpperCase();
         
-        if (!esTransferencia && !esTarjeta) continue;
-        
-        const metodoPago = esTransferencia ? 'TRANSFERENCIA' : 'TARJETA';
+        let metodoPago;
+        if (metodoPagoUpper.includes('TRANSFERENCIA')) {
+          metodoPago = 'TRANSFERENCIA';
+        } else if (metodoPagoUpper.includes('TARJETA')) {
+          metodoPago = 'TARJETA';
+        } else if (metodoPagoUpper.includes('EFECTIVO')) {
+          metodoPago = 'EFECTIVO';
+        } else {
+          metodoPago = 'OTROS';
+        }
         
         // Parsear fecha
         const fechaVenta = parsearFecha(fila[COL_ORIGEN_FECHA]);
@@ -875,57 +948,22 @@ function sincronizarRango(fechaInicioStr, fechaFinStr) {
         
         if (!folio) continue;
         
-        // Buscar en ambas hojas
+        // Buscar en todas las hojas
         const existeEnTransferencias = foliosTransferencias.get(folio);
         const existeEnTarjetas = foliosTarjetas.get(folio);
+        const existeEnEfectivo = foliosEfectivo.get(folio);
+        const existeEnOtros = foliosOtros.get(folio);
         
-        if (metodoPago === 'TRANSFERENCIA') {
-          foliosEncontradosTransferencias.add(folio); // Marcar como encontrado en origen
-          if (existeEnTarjetas && existeEnTarjetas.rowIndex > 0) {
-            movimientosEntreHojas.push({
-              tipo: 'TARJETA_A_TRANSFERENCIA',
-              folio, rowIndexOrigen: existeEnTarjetas.rowIndex,
-              fecha: fechaVenta, cliente, servicio, banco, monto
-            });
-            foliosTarjetas.delete(folio);
-            foliosTransferencias.set(folio, { rowIndex: -1 }); // Marcar como procesado
-          } else if (existeEnTransferencias && existeEnTransferencias.rowIndex > 0) {
-            const cambios = detectarCambios(existeEnTransferencias, { fecha: fechaVenta, cliente, servicio, banco, monto });
-            if (cambios.hayCambios) {
-              actualizadosTransferencias.push({
-                rowIndex: existeEnTransferencias.rowIndex,
-                folio, fecha: fechaVenta, cliente, servicio, banco, monto, cambios
-              });
-            }
-          } else if (!existeEnTransferencias) {
-            // Nuevo registro
-            nuevosTransferencias.push({ fecha: fechaVenta, folio, cliente, servicio, banco, monto });
-            foliosTransferencias.set(folio, { rowIndex: -1 });
-          }
-        } else { // TARJETA
-          foliosEncontradosTarjetas.add(folio); // Marcar como encontrado en origen
-          if (existeEnTransferencias && existeEnTransferencias.rowIndex > 0) {
-            movimientosEntreHojas.push({
-              tipo: 'TRANSFERENCIA_A_TARJETA',
-              folio, rowIndexOrigen: existeEnTransferencias.rowIndex,
-              fecha: fechaVenta, cliente, servicio, monto
-            });
-            foliosTransferencias.delete(folio);
-            foliosTarjetas.set(folio, { rowIndex: -1 }); // Marcar como procesado
-          } else if (existeEnTarjetas && existeEnTarjetas.rowIndex > 0) {
-            const cambios = detectarCambiosTarjetas(existeEnTarjetas, { fecha: fechaVenta, cliente, servicio, monto });
-            if (cambios.hayCambios) {
-              actualizadosTarjetas.push({
-                rowIndex: existeEnTarjetas.rowIndex,
-                folio, fecha: fechaVenta, cliente, servicio, monto, cambios
-              });
-            }
-          } else if (!existeEnTarjetas) {
-            // Nuevo registro
-            nuevosTarjetas.push({ fecha: fechaVenta, folio, cliente, servicio, monto });
-            foliosTarjetas.set(folio, { rowIndex: -1 });
-          }
-        }
+        // Procesar según método de pago
+        procesarRegistroPorMetodo(
+          metodoPago, metodoPagoRaw, folio, fechaVenta, cliente, servicio, banco, monto,
+          existeEnTransferencias, existeEnTarjetas, existeEnEfectivo, existeEnOtros,
+          foliosTransferencias, foliosTarjetas, foliosEfectivo, foliosOtros,
+          foliosEncontradosTransferencias, foliosEncontradosTarjetas, foliosEncontradosEfectivo, foliosEncontradosOtros,
+          nuevosTransferencias, nuevosTarjetas, nuevosEfectivo, nuevosOtros,
+          actualizadosTransferencias, actualizadosTarjetas, actualizadosEfectivo, actualizadosOtros,
+          movimientosEntreHojas
+        );
       }
     }
     
@@ -933,15 +971,29 @@ function sincronizarRango(fechaInicioStr, fechaFinStr) {
     const hojaBitacora = obtenerOCrearBitacora(ssDestino);
     const hojaRevision = obtenerOCrearHojaRevision(ssDestino);
     
-    procesarMovimientosEntreHojas(movimientosEntreHojas, hojaTransferencias, hojaTarjetas, hojaBitacora, hojaRevision);
+    // Mapa de hojas para procesamiento genérico
+    const hojas = {
+      TRANSFERENCIA: hojaTransferencias,
+      TARJETA: hojaTarjetas,
+      EFECTIVO: hojaEfectivo,
+      OTROS: hojaOtros
+    };
+    
+    procesarMovimientosEntreHojasGenerico(movimientosEntreHojas, hojas, hojaBitacora, hojaRevision);
     insertarNuevosTransferencias(nuevosTransferencias, hojaTransferencias);
     insertarNuevosTarjetas(nuevosTarjetas, hojaTarjetas);
+    insertarNuevosEfectivo(nuevosEfectivo, hojaEfectivo);
+    insertarNuevosOtros(nuevosOtros, hojaOtros);
     actualizarTransferencias(actualizadosTransferencias, hojaTransferencias, hojaBitacora);
     actualizarTarjetas(actualizadosTarjetas, hojaTarjetas, hojaBitacora);
+    actualizarEfectivo(actualizadosEfectivo, hojaEfectivo, hojaBitacora);
+    actualizarOtros(actualizadosOtros, hojaOtros, hojaBitacora);
     
     // Actualizar hipervínculos faltantes
     actualizarHipervínculosFaltantes(hojaTransferencias, 2);
     actualizarHipervínculosFaltantes(hojaTarjetas, 2);
+    actualizarHipervínculosFaltantes(hojaEfectivo, 2);
+    actualizarHipervínculosFaltantes(hojaOtros, 2);
     
     // Detectar eliminaciones
     const eliminacionesTransferencias = detectarEliminaciones(
@@ -950,12 +1002,20 @@ function sincronizarRango(fechaInicioStr, fechaFinStr) {
     const eliminacionesTarjetas = detectarEliminaciones(
       foliosTarjetas, foliosEncontradosTarjetas, fechaInicio, fechaFin, 'TARJETA', hojaBitacora
     );
+    const eliminacionesEfectivo = detectarEliminaciones(
+      foliosEfectivo, foliosEncontradosEfectivo, fechaInicio, fechaFin, 'EFECTIVO', hojaBitacora
+    );
+    const eliminacionesOtros = detectarEliminaciones(
+      foliosOtros, foliosEncontradosOtros, fechaInicio, fechaFin, 'OTROS', hojaBitacora
+    );
     
     // Resumen
     console.log('=== Sincronización por rango completada ===');
     console.log(`Rango: ${formatearFecha(fechaInicio)} - ${formatearFecha(fechaFin)} (${diasEnRango} días)`);
     console.log(`Transferencias: ${nuevosTransferencias.length} nuevos, ${actualizadosTransferencias.length} actualizados, ${eliminacionesTransferencias} eliminaciones`);
     console.log(`Tarjetas: ${nuevosTarjetas.length} nuevos, ${actualizadosTarjetas.length} actualizados, ${eliminacionesTarjetas} eliminaciones`);
+    console.log(`Efectivo: ${nuevosEfectivo.length} nuevos, ${actualizadosEfectivo.length} actualizados, ${eliminacionesEfectivo} eliminaciones`);
+    console.log(`Otros: ${nuevosOtros.length} nuevos, ${actualizadosOtros.length} actualizados, ${eliminacionesOtros} eliminaciones`);
     console.log(`Movimientos entre hojas: ${movimientosEntreHojas.length}`);
     
   } catch (error) {
@@ -965,6 +1025,141 @@ function sincronizarRango(fechaInicioStr, fechaFinStr) {
 }
 
 // ==================== FUNCIONES AUXILIARES ====================
+
+/**
+ * Procesa un registro según su método de pago
+ * Maneja nuevos registros, actualizaciones y movimientos entre hojas
+ */
+function procesarRegistroPorMetodo(
+  metodoPago, metodoPagoRaw, folio, fecha, cliente, servicio, banco, monto,
+  existeEnTransferencias, existeEnTarjetas, existeEnEfectivo, existeEnOtros,
+  foliosTransferencias, foliosTarjetas, foliosEfectivo, foliosOtros,
+  foliosEncontradosTransferencias, foliosEncontradosTarjetas, foliosEncontradosEfectivo, foliosEncontradosOtros,
+  nuevosTransferencias, nuevosTarjetas, nuevosEfectivo, nuevosOtros,
+  actualizadosTransferencias, actualizadosTarjetas, actualizadosEfectivo, actualizadosOtros,
+  movimientosEntreHojas
+) {
+  // Marcar como encontrado en el set correspondiente
+  if (metodoPago === 'TRANSFERENCIA') {
+    foliosEncontradosTransferencias.add(folio);
+  } else if (metodoPago === 'TARJETA') {
+    foliosEncontradosTarjetas.add(folio);
+  } else if (metodoPago === 'EFECTIVO') {
+    foliosEncontradosEfectivo.add(folio);
+  } else {
+    foliosEncontradosOtros.add(folio);
+  }
+  
+  // Detectar si el folio existe en otra hoja (cambio de método de pago)
+  const existeEnOtraHoja = detectarExistenciaEnOtraHoja(
+    metodoPago, folio, existeEnTransferencias, existeEnTarjetas, existeEnEfectivo, existeEnOtros
+  );
+  
+  if (existeEnOtraHoja) {
+    // Registrar movimiento entre hojas
+    movimientosEntreHojas.push({
+      tipo: `${existeEnOtraHoja.hojaOrigen}_A_${metodoPago}`,
+      folio: folio,
+      rowIndexOrigen: existeEnOtraHoja.rowIndex,
+      hojaOrigen: existeEnOtraHoja.hojaOrigen,
+      fecha: fecha,
+      cliente: cliente,
+      servicio: servicio,
+      banco: banco,
+      monto: monto,
+      metodoPagoRaw: metodoPagoRaw
+    });
+    
+    // Eliminar del mapa origen y agregar al destino
+    existeEnOtraHoja.mapa.delete(folio);
+    
+    // Marcar en el mapa destino
+    if (metodoPago === 'TRANSFERENCIA') {
+      foliosTransferencias.set(folio, { rowIndex: -1 });
+    } else if (metodoPago === 'TARJETA') {
+      foliosTarjetas.set(folio, { rowIndex: -1 });
+    } else if (metodoPago === 'EFECTIVO') {
+      foliosEfectivo.set(folio, { rowIndex: -1 });
+    } else {
+      foliosOtros.set(folio, { rowIndex: -1 });
+    }
+    return;
+  }
+  
+  // Procesar según método de pago actual
+  if (metodoPago === 'TRANSFERENCIA') {
+    if (existeEnTransferencias && existeEnTransferencias.rowIndex > 0) {
+      const cambios = detectarCambios(existeEnTransferencias, { fecha, cliente, servicio, banco, monto });
+      if (cambios.hayCambios) {
+        actualizadosTransferencias.push({
+          rowIndex: existeEnTransferencias.rowIndex,
+          folio, fecha, cliente, servicio, banco, monto, cambios
+        });
+      }
+    } else if (!existeEnTransferencias) {
+      nuevosTransferencias.push({ fecha, folio, cliente, servicio, banco, monto });
+      foliosTransferencias.set(folio, { rowIndex: -1 });
+    }
+  } else if (metodoPago === 'TARJETA') {
+    if (existeEnTarjetas && existeEnTarjetas.rowIndex > 0) {
+      const cambios = detectarCambiosTarjetas(existeEnTarjetas, { fecha, cliente, servicio, monto });
+      if (cambios.hayCambios) {
+        actualizadosTarjetas.push({
+          rowIndex: existeEnTarjetas.rowIndex,
+          folio, fecha, cliente, servicio, monto, cambios
+        });
+      }
+    } else if (!existeEnTarjetas) {
+      nuevosTarjetas.push({ fecha, folio, cliente, servicio, monto });
+      foliosTarjetas.set(folio, { rowIndex: -1 });
+    }
+  } else if (metodoPago === 'EFECTIVO') {
+    if (existeEnEfectivo && existeEnEfectivo.rowIndex > 0) {
+      const cambios = detectarCambiosTarjetas(existeEnEfectivo, { fecha, cliente, servicio, monto });
+      if (cambios.hayCambios) {
+        actualizadosEfectivo.push({
+          rowIndex: existeEnEfectivo.rowIndex,
+          folio, fecha, cliente, servicio, monto, cambios
+        });
+      }
+    } else if (!existeEnEfectivo) {
+      nuevosEfectivo.push({ fecha, folio, cliente, servicio, monto });
+      foliosEfectivo.set(folio, { rowIndex: -1 });
+    }
+  } else { // OTROS
+    if (existeEnOtros && existeEnOtros.rowIndex > 0) {
+      const cambios = detectarCambiosTarjetas(existeEnOtros, { fecha, cliente, servicio, monto });
+      if (cambios.hayCambios) {
+        actualizadosOtros.push({
+          rowIndex: existeEnOtros.rowIndex,
+          folio, fecha, cliente, servicio, monto, metodoPagoRaw, cambios
+        });
+      }
+    } else if (!existeEnOtros) {
+      nuevosOtros.push({ fecha, folio, cliente, servicio, monto, metodoPagoRaw });
+      foliosOtros.set(folio, { rowIndex: -1 });
+    }
+  }
+}
+
+/**
+ * Detecta si un folio existe en una hoja diferente a la que debería estar
+ */
+function detectarExistenciaEnOtraHoja(metodoPago, folio, existeEnTransferencias, existeEnTarjetas, existeEnEfectivo, existeEnOtros) {
+  if (metodoPago !== 'TRANSFERENCIA' && existeEnTransferencias && existeEnTransferencias.rowIndex > 0) {
+    return { hojaOrigen: 'TRANSFERENCIA', rowIndex: existeEnTransferencias.rowIndex, mapa: null };
+  }
+  if (metodoPago !== 'TARJETA' && existeEnTarjetas && existeEnTarjetas.rowIndex > 0) {
+    return { hojaOrigen: 'TARJETA', rowIndex: existeEnTarjetas.rowIndex, mapa: null };
+  }
+  if (metodoPago !== 'EFECTIVO' && existeEnEfectivo && existeEnEfectivo.rowIndex > 0) {
+    return { hojaOrigen: 'EFECTIVO', rowIndex: existeEnEfectivo.rowIndex, mapa: null };
+  }
+  if (metodoPago !== 'OTROS' && existeEnOtros && existeEnOtros.rowIndex > 0) {
+    return { hojaOrigen: 'OTROS', rowIndex: existeEnOtros.rowIndex, mapa: null };
+  }
+  return null;
+}
 
 /**
  * Detecta eliminaciones: folios que existían en destino pero ya no están en origen
@@ -1009,6 +1204,8 @@ function detectarEliminaciones(mapaFolios, foliosEncontrados, fechaInicio, fecha
 
 /**
  * Construye un mapa de folios existentes en una hoja
+ * @param {Sheet} hoja - Hoja a procesar
+ * @param {string} tipo - 'TRANSFERENCIA', 'TARJETA', 'EFECTIVO' o 'OTROS'
  */
 function construirMapaFolios(hoja, tipo) {
   const mapa = new Map();
@@ -1026,13 +1223,23 @@ function construirMapaFolios(hoja, tipo) {
           banco: String(datos[i][4] || '').trim(),
           monto: parsearMonto(datos[i][5])
         });
-      } else { // TARJETA
+      } else if (tipo === 'TARJETA' || tipo === 'EFECTIVO') {
+        // Tarjetas y Efectivo tienen monto en columna E
         mapa.set(folio, {
           rowIndex: i + 1,
           fecha: parsearFecha(datos[i][0]),
           cliente: String(datos[i][2] || '').trim(),
           servicio: String(datos[i][3] || '').trim(),
-          monto: parsearMonto(datos[i][4]) // Monto en columna E para tarjetas
+          monto: parsearMonto(datos[i][4])
+        });
+      } else { // OTROS - tiene método de pago en columna F
+        mapa.set(folio, {
+          rowIndex: i + 1,
+          fecha: parsearFecha(datos[i][0]),
+          cliente: String(datos[i][2] || '').trim(),
+          servicio: String(datos[i][3] || '').trim(),
+          monto: parsearMonto(datos[i][4]),
+          metodoPago: String(datos[i][5] || '').trim()
         });
       }
     }
@@ -1076,6 +1283,181 @@ function detectarCambiosTarjetas(existente, nuevo) {
   
   cambios.hayCambios = cambios.fecha || cambios.cliente || cambios.servicio || cambios.monto;
   return cambios;
+}
+
+/**
+ * Procesa movimientos entre hojas de forma genérica (para todos los tipos de método de pago)
+ */
+function procesarMovimientosEntreHojasGenerico(movimientos, hojas, hojaBitacora, hojaRevision) {
+  if (movimientos.length === 0) return;
+  
+  // Agrupar por hoja origen y ordenar por rowIndex descendente
+  const porHojaOrigen = {};
+  for (const mov of movimientos) {
+    if (!porHojaOrigen[mov.hojaOrigen]) {
+      porHojaOrigen[mov.hojaOrigen] = [];
+    }
+    porHojaOrigen[mov.hojaOrigen].push(mov);
+  }
+  
+  // Ordenar cada grupo por rowIndex descendente
+  for (const hojaOrigen in porHojaOrigen) {
+    porHojaOrigen[hojaOrigen].sort((a, b) => b.rowIndexOrigen - a.rowIndexOrigen);
+  }
+  
+  let movidosARevision = 0;
+  let movidosNormales = 0;
+  
+  // Mapeo de nombres de hojas
+  const nombresHojas = {
+    TRANSFERENCIA: NOMBRE_HOJA_TRANSFERENCIAS,
+    TARJETA: NOMBRE_HOJA_TARJETAS,
+    EFECTIVO: NOMBRE_HOJA_EFECTIVO,
+    OTROS: NOMBRE_HOJA_OTROS
+  };
+  
+  // Procesar cada grupo
+  for (const hojaOrigenTipo in porHojaOrigen) {
+    const hojaOrigen = hojas[hojaOrigenTipo];
+    if (!hojaOrigen) continue;
+    
+    for (const mov of porHojaOrigen[hojaOrigenTipo]) {
+      // Extraer tipo destino del nombre del movimiento
+      const tipoDestino = mov.tipo.split('_A_')[1];
+      const hojaDestino = hojas[tipoDestino];
+      if (!hojaDestino) continue;
+      
+      // Verificar trabajo manual
+      const trabajo = verificarTrabajoManualGenerico(hojaOrigen, mov.rowIndexOrigen, hojaOrigenTipo);
+      
+      if (trabajo.tieneTrabajoManual) {
+        // Mover a revisión
+        hojaRevision.appendRow([
+          new Date(),
+          mov.folio,
+          `Cambio método pago: ${hojaOrigenTipo} → ${tipoDestino}`,
+          nombresHojas[hojaOrigenTipo],
+          nombresHojas[tipoDestino],
+          mov.fecha,
+          mov.cliente,
+          mov.servicio,
+          mov.monto,
+          mov.banco || '',
+          trabajo.conciliado ? 'Sí' : 'No',
+          trabajo.conceptoBanco,
+          trabajo.observaciones,
+          'Pendiente'
+        ]);
+        
+        hojaOrigen.deleteRow(mov.rowIndexOrigen);
+        
+        registrarEnBitacora(hojaBitacora, mov.folio,
+          'CONFLICTO → REVISIÓN',
+          `${hojaOrigenTipo} → ${tipoDestino} (tenía trabajo manual)`,
+          `Conciliado: ${trabajo.conciliado}; ${trabajo.conceptoBanco}`,
+          'Movido a: ' + NOMBRE_HOJA_REVISION
+        );
+        
+        console.log(`⚠️ Folio ${mov.folio} movido a REVISIÓN (tenía trabajo manual)`);
+        movidosARevision++;
+      } else {
+        // Mover normalmente
+        hojaOrigen.deleteRow(mov.rowIndexOrigen);
+        
+        const ultimaFila = hojaDestino.getLastRow();
+        
+        // Insertar según tipo de destino
+        if (tipoDestino === 'TRANSFERENCIA') {
+          hojaDestino.getRange(ultimaFila + 1, 1, 1, 6).setValues([[
+            mov.fecha, mov.folio, mov.cliente, mov.servicio, mov.banco, mov.monto
+          ]]);
+          hojaDestino.getRange(ultimaFila + 1, 6).setNumberFormat('$#,##0.00');
+        } else if (tipoDestino === 'OTROS') {
+          hojaDestino.getRange(ultimaFila + 1, 1, 1, 6).setValues([[
+            mov.fecha, mov.folio, mov.cliente, mov.servicio, mov.monto, mov.metodoPagoRaw || '(vacío)'
+          ]]);
+          hojaDestino.getRange(ultimaFila + 1, 5).setNumberFormat('$#,##0.00');
+        } else { // TARJETA o EFECTIVO
+          hojaDestino.getRange(ultimaFila + 1, 1, 1, 5).setValues([[
+            mov.fecha, mov.folio, mov.cliente, mov.servicio, mov.monto
+          ]]);
+          hojaDestino.getRange(ultimaFila + 1, 5).setNumberFormat('$#,##0.00');
+        }
+        
+        hojaDestino.getRange(ultimaFila + 1, 1).setNumberFormat('d/M/yyyy');
+        aplicarHipervínculosFolios(hojaDestino, ultimaFila + 1, 2, [mov.folio]);
+        
+        registrarEnBitacora(hojaBitacora, mov.folio,
+          'CAMBIO MÉTODO PAGO',
+          `${hojaOrigenTipo} → ${tipoDestino}`,
+          'Hoja: ' + nombresHojas[hojaOrigenTipo],
+          'Hoja: ' + nombresHojas[tipoDestino]
+        );
+        
+        console.log(`Folio ${mov.folio} movido de ${hojaOrigenTipo} a ${tipoDestino}`);
+        movidosNormales++;
+      }
+    }
+  }
+  
+  if (movidosARevision > 0) {
+    console.log(`⚠️ ${movidosARevision} registros enviados a Revisión Pendiente`);
+  }
+  if (movidosNormales > 0) {
+    console.log(`✓ ${movidosNormales} registros movidos entre hojas`);
+  }
+}
+
+/**
+ * Verifica trabajo manual de forma genérica para cualquier tipo de hoja
+ */
+function verificarTrabajoManualGenerico(hoja, rowIndex, tipo) {
+  if (tipo === 'TRANSFERENCIA') {
+    // G=Conciliado, H=Concepto Banco, I=Observaciones
+    const valores = hoja.getRange(rowIndex, 7, 1, 3).getValues()[0];
+    const conciliado = valores[0] === true || valores[0] === 'TRUE';
+    const conceptoBanco = String(valores[1] || '').trim();
+    const observaciones = String(valores[2] || '').trim();
+    return {
+      tieneTrabajoManual: conciliado || conceptoBanco !== '' || observaciones !== '',
+      conciliado, conceptoBanco, observaciones
+    };
+  } else if (tipo === 'TARJETA') {
+    // F=Recibo, G=Afiliación, H=# Lote, I=Observaciones
+    const valores = hoja.getRange(rowIndex, 6, 1, 4).getValues()[0];
+    const recibo = valores[0] === true || valores[0] === 'TRUE';
+    const afiliacion = String(valores[1] || '').trim();
+    const lote = String(valores[2] || '').trim();
+    const observaciones = String(valores[3] || '').trim();
+    return {
+      tieneTrabajoManual: recibo || afiliacion !== '' || lote !== '' || observaciones !== '',
+      conciliado: recibo,
+      conceptoBanco: `Afiliación: ${afiliacion}; Lote: ${lote}`,
+      observaciones
+    };
+  } else if (tipo === 'EFECTIVO') {
+    // F=Verificado, G=Observaciones
+    const valores = hoja.getRange(rowIndex, 6, 1, 2).getValues()[0];
+    const verificado = valores[0] === true || valores[0] === 'TRUE';
+    const observaciones = String(valores[1] || '').trim();
+    return {
+      tieneTrabajoManual: verificado || observaciones !== '',
+      conciliado: verificado,
+      conceptoBanco: '',
+      observaciones
+    };
+  } else { // OTROS
+    // G=Verificado, H=Observaciones
+    const valores = hoja.getRange(rowIndex, 7, 1, 2).getValues()[0];
+    const verificado = valores[0] === true || valores[0] === 'TRUE';
+    const observaciones = String(valores[1] || '').trim();
+    return {
+      tieneTrabajoManual: verificado || observaciones !== '',
+      conciliado: verificado,
+      conceptoBanco: '',
+      observaciones
+    };
+  }
 }
 
 /**
@@ -1366,6 +1748,104 @@ function actualizarTarjetas(registros, hoja, hojaBitacora) {
   }
   
   console.log(`${registros.length} tarjetas actualizadas`);
+}
+
+/**
+ * Inserta nuevos registros de efectivo
+ */
+function insertarNuevosEfectivo(registros, hoja) {
+  if (registros.length === 0) return;
+  
+  const ultimaFila = hoja.getLastRow();
+  const datos = registros.map(r => [r.fecha, r.folio, r.cliente, r.servicio, r.monto]);
+  
+  hoja.getRange(ultimaFila + 1, 1, datos.length, 5).setValues(datos);
+  hoja.getRange(ultimaFila + 1, 1, datos.length, 1).setNumberFormat('d/M/yyyy');
+  hoja.getRange(ultimaFila + 1, 5, datos.length, 1).setNumberFormat('$#,##0.00');
+  
+  const folios = registros.map(r => r.folio);
+  aplicarHipervínculosFolios(hoja, ultimaFila + 1, 2, folios);
+  
+  console.log(`${registros.length} nuevos efectivo insertados`);
+}
+
+/**
+ * Inserta nuevos registros de otros métodos de pago
+ */
+function insertarNuevosOtros(registros, hoja) {
+  if (registros.length === 0) return;
+  
+  const ultimaFila = hoja.getLastRow();
+  // Incluye método de pago en columna F
+  const datos = registros.map(r => [r.fecha, r.folio, r.cliente, r.servicio, r.monto, r.metodoPagoRaw || '(vacío)']);
+  
+  hoja.getRange(ultimaFila + 1, 1, datos.length, 6).setValues(datos);
+  hoja.getRange(ultimaFila + 1, 1, datos.length, 1).setNumberFormat('d/M/yyyy');
+  hoja.getRange(ultimaFila + 1, 5, datos.length, 1).setNumberFormat('$#,##0.00');
+  
+  const folios = registros.map(r => r.folio);
+  aplicarHipervínculosFolios(hoja, ultimaFila + 1, 2, folios);
+  
+  console.log(`${registros.length} nuevos otros insertados`);
+}
+
+/**
+ * Actualiza registros existentes de efectivo
+ */
+function actualizarEfectivo(registros, hoja, hojaBitacora) {
+  if (registros.length === 0) return;
+  
+  for (const reg of registros) {
+    hoja.getRange(reg.rowIndex, 1).setValue(reg.fecha);
+    hoja.getRange(reg.rowIndex, 1).setNumberFormat('d/M/yyyy');
+    hoja.getRange(reg.rowIndex, 2).setValue(reg.folio);
+    hoja.getRange(reg.rowIndex, 3).setValue(reg.cliente);
+    hoja.getRange(reg.rowIndex, 4).setValue(reg.servicio);
+    hoja.getRange(reg.rowIndex, 5).setValue(reg.monto);
+    hoja.getRange(reg.rowIndex, 5).setNumberFormat('$#,##0.00');
+    
+    const cambiosTexto = construirTextoCambios(reg.cambios, 'EFECTIVO');
+    if (cambiosTexto) {
+      registrarEnBitacora(hojaBitacora, reg.folio,
+        'ACTUALIZACIÓN',
+        cambiosTexto.descripcion,
+        cambiosTexto.anterior,
+        cambiosTexto.nuevo
+      );
+    }
+  }
+  
+  console.log(`${registros.length} efectivo actualizados`);
+}
+
+/**
+ * Actualiza registros existentes de otros métodos de pago
+ */
+function actualizarOtros(registros, hoja, hojaBitacora) {
+  if (registros.length === 0) return;
+  
+  for (const reg of registros) {
+    hoja.getRange(reg.rowIndex, 1).setValue(reg.fecha);
+    hoja.getRange(reg.rowIndex, 1).setNumberFormat('d/M/yyyy');
+    hoja.getRange(reg.rowIndex, 2).setValue(reg.folio);
+    hoja.getRange(reg.rowIndex, 3).setValue(reg.cliente);
+    hoja.getRange(reg.rowIndex, 4).setValue(reg.servicio);
+    hoja.getRange(reg.rowIndex, 5).setValue(reg.monto);
+    hoja.getRange(reg.rowIndex, 5).setNumberFormat('$#,##0.00');
+    hoja.getRange(reg.rowIndex, 6).setValue(reg.metodoPagoRaw || '(vacío)');
+    
+    const cambiosTexto = construirTextoCambios(reg.cambios, 'OTROS');
+    if (cambiosTexto) {
+      registrarEnBitacora(hojaBitacora, reg.folio,
+        'ACTUALIZACIÓN',
+        cambiosTexto.descripcion,
+        cambiosTexto.anterior,
+        cambiosTexto.nuevo
+      );
+    }
+  }
+  
+  console.log(`${registros.length} otros actualizados`);
 }
 
 /**
